@@ -1,10 +1,12 @@
-import { defineBoot } from '#q-app/wrappers';
-import axios, { type AxiosInstance } from 'axios';
+import { boot } from 'quasar/wrappers'
+import axios from 'axios'
+import type { AxiosInstance } from 'axios'
+import { authManager } from 'src/services'
 
-declare module 'vue' {
+declare module '@vue/runtime-core' {
   interface ComponentCustomProperties {
-    $axios: AxiosInstance;
-    $api: AxiosInstance;
+    $axios: AxiosInstance
+    $api: AxiosInstance
   }
 }
 
@@ -14,18 +16,66 @@ declare module 'vue' {
 // good idea to move this instance creation inside of the
 // "export default () => {}" function below (which runs individually
 // for each client)
-const api = axios.create({ baseURL: 'https://api.example.com' });
+const api = axios.create({
+  baseURL: process.env.API_URL || 'http://localhost:3333/',
+  withCredentials: true,
+  headers: {}
+})
 
-export default defineBoot(({ app }) => {
-  // for use inside Vue files (Options API) through this.$axios and this.$api
+const DEBUG = process.env.NODE_ENV === 'development'
 
-  app.config.globalProperties.$axios = axios;
-  // ^ ^ ^ this will allow you to use this.$axios (for Vue Options API form)
-  //       so you won't necessarily have to import axios in each vue file
+// add interceptor to add authorization header for api calls
+api.interceptors.request.use(
+  (config) => {
+    const token = authManager.getToken()
 
-  app.config.globalProperties.$api = api;
-  // ^ ^ ^ this will allow you to use this.$api (for Vue Options API form)
-  //       so you can easily perform requests against your app's API
-});
+    if (token) { // token !== null 
+      config.headers.Authorization = `Bearer ${token}`
+    }
 
-export { api };
+    if (DEBUG) {
+      console.info('-> ', config)
+    }
+
+    return config
+  },
+  (error) => {
+    if (DEBUG) {
+      console.error('-> ', error)
+    }
+
+    return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+  }
+)
+
+// add interceptor for response to trigger logout
+api.interceptors.response.use(
+  (response) => {
+    if (DEBUG) {
+      console.info('<- ', response)
+    }
+
+    return response
+  },
+  (error) => {
+    if (DEBUG) {
+      console.error('<- ', error.response)
+    }
+
+    // server api request returned unathorized response so we trrigger logout
+    if (error.response.status === 401 && !error.response.config.dontTriggerLogout) {
+      authManager.logout()
+    }
+
+    return Promise.reject(error instanceof Error ? error : new Error(String(error)))
+  }
+)
+
+import type { App } from 'vue'
+
+export default boot(({ app }: { app: App }) => {
+  app.config.globalProperties.$axios = axios
+  app.config.globalProperties.$api = api
+})
+
+export { api }

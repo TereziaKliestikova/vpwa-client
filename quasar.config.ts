@@ -1,11 +1,9 @@
 // Configuration for your app
 // https://v2.quasar.dev/quasar-cli-webpack/quasar-config-file
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-
 import { defineConfig } from '#q-app/wrappers';
 
-export default defineConfig((/* ctx */) => {
+export default defineConfig((ctx ) => {
   return {
     eslint: {
       // fix: true,
@@ -23,7 +21,7 @@ export default defineConfig((/* ctx */) => {
     // app boot file (/src/boot)
     // --> boot files are part of "main.js"
     // https://v2.quasar.dev/quasar-cli-webpack/boot-files
-    boot: ['axios'],
+    boot: ['axios', 'auth'],
 
     // https://v2.quasar.dev/quasar-cli-webpack/quasar-config-file#css
     css: ['app.scss'],
@@ -45,8 +43,10 @@ export default defineConfig((/* ctx */) => {
     // Full list of options: https://v2.quasar.dev/quasar-cli-webpack/quasar-config-file#build
     build: {
       // publicPath: '/',
-      vueRouterMode: 'hash', // available values: 'hash', 'history'
-
+      vueRouterMode: 'history', // available values: 'hash', 'history'
+      env: {
+        API_URL: process.env.API_URL || (ctx.dev ? 'http://localhost:3333' : 'https://prod.api.com')
+      },
       // webpackTranspile: false,
 
       // Add dependencies for transpiling with Babel (Array of string/regex)

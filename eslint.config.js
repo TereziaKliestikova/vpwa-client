@@ -4,6 +4,11 @@ import pluginVue from 'eslint-plugin-vue';
 import pluginQuasar from '@quasar/app-webpack/eslint';
 import { defineConfigWithVueTs, vueTsConfigs } from '@vue/eslint-config-typescript';
 import prettierSkipFormatting from '@vue/eslint-config-prettier/skip-formatting';
+import tsParser from '@typescript-eslint/parser'
+import vueParser from 'vue-eslint-parser'
+
+
+// potrebne instalovat npm install -D @typescript-eslint/parser
 
 export default defineConfigWithVueTs(
   {
@@ -47,8 +52,13 @@ export default defineConfigWithVueTs(
 
   {
     languageOptions: {
-      ecmaVersion: 'latest',
-      sourceType: 'module',
+      parser: vueParser,
+      parserOptions: {
+        parser: tsParser,
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+        extraFileExtensions: ['.vue'],
+      },
 
       globals: {
         ...globals.browser,
