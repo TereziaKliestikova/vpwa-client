@@ -94,9 +94,11 @@
           required
           dense
           :rules="[
-            (val) => !!val || '',
-            (val) => val.length >= 8 || '',
-            (val) => /\d/.test(val) || ''
+            (val) => !!val || 'Password is required',
+            (val) => val.length >= 8 || 'At least 8 characters',
+            (val) => /[0-9]/.test(val) || 'At least one number',
+            (val) => /[A-Z]/.test(val) || 'At least one uppercase letter',
+            (val) => /[.?!@#$%^&*()]/.test(val) || 'At least one special character (!@#$%^&*())'
           ]"
         >
           <template v-slot:before>
@@ -118,7 +120,7 @@
           outlined
           required
           dense
-          :error="passwordMismatch"
+          :error="passwordConfirmation"
           :error-message="''"
         >
           <template v-slot:before>
@@ -140,7 +142,7 @@
           color="primary"
           class="full-width bg-yellow-8"
           :loading="loading"
-          :disable="loading || passwordMismatch"          
+          :disable="loading || passwordConfirmation"          
         />
 
         <!-- Prihlásenie -->
@@ -177,7 +179,7 @@ const uploadedAvatar = ref<string | undefined>(undefined)
 const fileInput = ref<HTMLInputElement | null>(null)
 
 const loading = computed(() => authStore.status === 'pending')
-const passwordMismatch = computed(() => {
+const passwordConfirmation = computed(() => {
   return form.passwordConfirmation !== '' && form.passwordConfirmation !== form.password
 })
 
@@ -195,7 +197,7 @@ const handleFileUpload = (event: Event) => {
 }
 
 const onSubmit = async () => {
-  if (passwordMismatch.value) return
+  if (passwordConfirmation.value) return
 
   const registerData = {
     firstName: form.firstName,
@@ -203,7 +205,7 @@ const onSubmit = async () => {
     nickName: form.nickName,
     email: form.email,
     password: form.password,
-    // passwordMismatch: form.passwordConfirmation,
+    passwordConfirmation: form.passwordConfirmation,
     avatar: uploadedAvatar.value // base64 string
   }
 

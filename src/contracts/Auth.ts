@@ -11,7 +11,7 @@ export interface RegisterData {
     nickName: string
     email: string
     password: string
-    // passwordConfirmation: string
+    passwordConfirmation: string
     avatar?: string | undefined // base64 string
 }
 
