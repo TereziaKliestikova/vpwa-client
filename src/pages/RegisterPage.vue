@@ -1,16 +1,12 @@
 <template>
   <q-page class="flex flex-center bg-secondary">
-    <q-card style="width: 400px; position: relative;" flat bordered>
+    <q-card style="width: 400px; position: relative" flat bordered>
       <q-form @submit="onSubmit" class="q-pa-lg q-gutter-y-md">
         <div class="text-h6 q-mb-lg text-left">Register</div>
 
         <!-- Avatar + Upload -->
         <div class="profile-wrapper column items-center q-mb-md">
-          <ProfilePicture
-            :avatar="uploadedAvatar"
-            size="80px"
-            bgColor="grey-4"
-          />
+          <ProfilePicture :avatar="uploadedAvatar" size="80px" bgColor="grey-4" />
           <q-btn
             flat
             color="primary"
@@ -58,7 +54,7 @@
         </q-input>
 
         <q-input
-          v-model.trim="form.nickName"
+          v-model.trim="form.nickname"
           label="Nickname*"
           outlined
           required
@@ -98,7 +94,8 @@
             (val) => val.length >= 8 || 'At least 8 characters',
             (val) => /[0-9]/.test(val) || 'At least one number',
             (val) => /[A-Z]/.test(val) || 'At least one uppercase letter',
-            (val) => /[/.?!@#$%^&*()]/.test(val) || 'At least one special character (./?!@#$%^&*())'
+            (val) =>
+              /[/.?!@#$%^&*()]/.test(val) || 'At least one special character (./?!@#$%^&*())',
           ]"
         >
           <template v-slot:before>
@@ -142,7 +139,7 @@
           color="primary"
           class="full-width bg-yellow-8"
           :loading="loading"
-          :disable="loading || passwordConfirmation"          
+          :disable="loading || passwordConfirmation"
         />
 
         <!-- Prihlásenie -->
@@ -150,72 +147,71 @@
           <span>Already have an account? </span>
           <q-btn flat color="primary" :to="{ name: 'login' }">SIGN IN</q-btn>
         </div>
-
       </q-form>
     </q-card>
   </q-page>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAuthStore } from 'src/stores/auth'
-import ProfilePicture from '../components/ProfilePicture.vue'
+import { reactive, ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from 'src/stores/auth';
+import ProfilePicture from '../components/ProfilePicture.vue';
 
-const router = useRouter()
-const authStore = useAuthStore()
+const router = useRouter();
+const authStore = useAuthStore();
 
 const form = reactive({
   firstName: '',
   lastName: '',
-  nickName: '',
+  nickname: '',
   email: '',
   password: '',
-  passwordConfirmation: ''
-})
+  passwordConfirmation: '',
+});
 
-const showPassword = ref(false)
-const uploadedAvatar = ref<string | undefined>(undefined)
-const fileInput = ref<HTMLInputElement | null>(null)
+const showPassword = ref(false);
+const uploadedAvatar = ref<string | undefined>(undefined);
+const fileInput = ref<HTMLInputElement | null>(null);
 
-const loading = computed(() => authStore.status === 'pending')
+const loading = computed(() => authStore.status === 'pending');
 const passwordConfirmation = computed(() => {
-  return form.passwordConfirmation !== '' && form.passwordConfirmation !== form.password
-})
+  return form.passwordConfirmation !== '' && form.passwordConfirmation !== form.password;
+});
 
-const triggerFileInput = () => fileInput.value?.click()
+const triggerFileInput = () => fileInput.value?.click();
 
 const handleFileUpload = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  const reader = new FileReader()
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
   reader.onload = (e) => {
-    uploadedAvatar.value = e.target?.result as string
-  }
-  reader.readAsDataURL(file)
-}
+    uploadedAvatar.value = e.target?.result as string;
+  };
+  reader.readAsDataURL(file);
+};
 
 const onSubmit = async () => {
-  if (passwordConfirmation.value) return
+  if (passwordConfirmation.value) return;
 
   const registerData = {
     firstName: form.firstName,
     lastName: form.lastName,
-    nickName: form.nickName,
+    nickname: form.nickname,
     email: form.email,
     password: form.password,
     passwordConfirmation: form.passwordConfirmation,
-    avatar: uploadedAvatar.value // base64 string
-  }
+    avatar: uploadedAvatar.value, // base64 string
+  };
 
   try {
-    await authStore.register(registerData)
-    await router.push({ name: 'login' })
+    await authStore.register(registerData);
+    await router.push({ name: 'login' });
   } catch (err) {
-    console.error('Registration failed:', err)
+    console.error('Registration failed:', err);
   }
-}
+};
 </script>
 
 <style scoped>
