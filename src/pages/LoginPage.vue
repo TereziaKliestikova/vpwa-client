@@ -40,7 +40,7 @@
             (val) => val.length >= 8 || 'At least 8 characters',
             (val) => /[0-9]/.test(val) || 'At least one number',
             (val) => /[A-Z]/.test(val) || 'At least one uppercase letter',
-            (val) => /[.?!@#$%^&*()]/.test(val) || 'At least one special character (!@#$%^&*())'
+            (val) => /[./?!@#$%^&*()]/.test(val) || 'At least one special character (/.?!@#$%^&*())'
             ]"
         >
             <template v-slot:prepend>
