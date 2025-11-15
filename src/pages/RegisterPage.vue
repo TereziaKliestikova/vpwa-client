@@ -53,34 +53,52 @@
           </template>
         </q-input>
 
-        <q-input
-          v-model.trim="form.nickname"
-          label="Nickname*"
-          outlined
-          required
-          dense
-          maxlength="20"
-          :rules="[(val) => !!val || '']"
-        >
-          <template v-slot:before>
-            <q-icon name="person" size="20px" class="q-mr-sm" />
-          </template>
-        </q-input>
+        <div class="relative-position">
+          <q-input
+            v-model.trim="form.nickname"
+            label="Nickname*"
+            outlined
+            required
+            dense
+            maxlength="20"
+            :rules="[(val) => !!val || '']"
+          >
+            <template v-slot:before>
+              <q-icon name="person" size="20px" class="q-mr-sm" />
+            </template>
+          </q-input>
+          <div
+            v-if="errorMessageNickname"
+            class="text-negative text-caption absolute-bottom-left q-pl-sm"
+            style="left: 30px"
+          >
+            {{ errorMessageNickname }}
+          </div>
+        </div>
 
-        <q-input
-          v-model.trim="form.email"
-          label="Email*"
-          type="email"
-          outlined
-          required
-          dense
-          maxlength="30"
-          :rules="[(val) => !!val || '']"
-        >
-          <template v-slot:before>
-            <q-icon name="mail" size="20px" class="q-mr-sm" />
-          </template>
-        </q-input>
+        <div class="relative-position">
+          <q-input
+            v-model.trim="form.email"
+            label="Email*"
+            type="email"
+            outlined
+            required
+            dense
+            maxlength="30"
+            :rules="[(val) => !!val || '']"
+          >
+            <template v-slot:before>
+              <q-icon name="mail" size="20px" class="q-mr-sm" />
+            </template>
+          </q-input>
+          <div
+            v-if="errorMessageEmail"
+            class="text-negative text-caption absolute-bottom-left q-pl-sm"
+            style="left: 30px"
+          >
+            {{ errorMessageEmail }}
+          </div>
+        </div>
 
         <q-input
           v-model="form.password"
@@ -141,6 +159,9 @@
           :loading="loading"
           :disable="loading || passwordConfirmation"
         />
+        <div class="text-negative" v-if="errorMessageOther">
+          {{ errorMessageOther }}
+        </div>
 
         <!-- Prihlásenie -->
         <div class="q-mt-md text-center">
@@ -192,8 +213,15 @@ const handleFileUpload = (event: Event) => {
   reader.readAsDataURL(file);
 };
 
+const errorMessageEmail = ref('');
+const errorMessageNickname = ref('');
+const errorMessageOther = ref('');
 const onSubmit = async () => {
   if (passwordConfirmation.value) return;
+
+  errorMessageEmail.value = '';
+  errorMessageNickname.value = '';
+  errorMessageOther.value = '';
 
   const registerData = {
     firstName: form.firstName,
@@ -208,8 +236,35 @@ const onSubmit = async () => {
   try {
     await authStore.register(registerData);
     await router.push({ name: 'login' });
-  } catch (err) {
+  } catch (err: unknown) {
     console.error('Registration failed:', err);
+
+    if (err && typeof err === 'object' && 'response' in err) {
+      const axiosError = err as {
+        response?: { data?: { errors?: Array<{ field?: string; message?: string }> } };
+      };
+      const errors = axiosError.response?.data?.errors;
+
+      if (errors && errors.length > 0) {
+        // Show ALL errors at once
+        errors.forEach((error) => {
+          if (error.field === 'email') {
+            errorMessageEmail.value = 'There is already an account with this email';
+          } else if (error.field === 'nickname') {
+            errorMessageNickname.value = 'Nickname already exists';
+          }
+        });
+
+        // If no specific field errors, show general error
+        if (!errorMessageEmail.value && !errorMessageNickname.value && !errorMessageOther.value) {
+          errorMessageOther.value = 'Registration failed';
+        }
+      } else {
+        errorMessageOther.value = 'Registration failed. Please try again.';
+      }
+    } else {
+      errorMessageOther.value = 'Registration failed. Please try again.';
+    }
   }
 };
 </script>
