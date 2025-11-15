@@ -37,10 +37,8 @@
         <q-item-section>
           <div class="row items-center justify-between">
             <span>{{ channel.name }}</span>
-            <q-icon v-if="channel.type === 'public'" class="material-symbols-outlined symbol"
-              >public</q-icon
-            >
-            <q-icon v-else class="material-symbols-outlined symbol">lock</q-icon>
+            <q-icon v-if="channel.type === 'public'" name="public"></q-icon>
+            <q-icon v-else name="lock"></q-icon>
           </div>
           <div v-if="channel.name === 'UniLife'" class="typing-indicator">
             <b class="typing-name text-caption text-grey-8">Milan is typing</b>
@@ -115,15 +113,7 @@
 
 <script setup lang="ts">
 import { ref, watch } from 'vue';
-
-interface Channel {
-  id: number;
-  name: string;
-  type: 'public' | 'private';
-  messages: { id: number; user: string; text: string }[];
-  members?: number[];
-  isAdmin?: boolean;
-}
+import type { Channel } from 'src/types/channel';
 
 const props = defineProps<{
   showChannels: boolean;

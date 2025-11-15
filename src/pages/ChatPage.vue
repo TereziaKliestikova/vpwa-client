@@ -438,6 +438,10 @@ import ProfilePicture from '../components/ProfilePicture.vue';
 import ChatNotification from '../components/ChatNotification.vue';
 import ChannelListSide from '../components/ChannelListSide.vue';
 import type { QScrollArea } from 'quasar';
+import type { Channel } from 'src/types/channel';
+
+// backend
+import { api } from 'src/boot/axios';
 
 type UserStatus = 'online' | 'dnd' | 'offline';
 
@@ -454,14 +458,7 @@ interface Message {
   user: string;
   text: string;
 }
-interface Channel {
-  id: number;
-  name: string;
-  type: 'public' | 'private';
-  messages: Message[];
-  members?: number[];
-  isAdmin?: boolean;
-}
+
 interface Invitation {
   id: number;
   from: string;
@@ -508,6 +505,9 @@ const userStatus = ref<UserStatus>('online');
 // zobrazenie channel a friends listu
 const showChannels = ref(true);
 const showFriends = ref(false);
+const channels = ref<Channel[]>([]);
+const activeChannel = ref<Channel | null>(null);
+const channelFilter = ref<'all' | 'public' | 'private'>('all');
 
 const toggleChannels = () => {
   showChannels.value = !showChannels.value;
@@ -610,21 +610,25 @@ const getUserByName = (name: string): User => {
 };
 
 const newChannelType = ref<'public' | 'private'>('public');
-const channels = ref<Channel[]>([
-  {
-    id: 1,
-    name: 'General',
-    type: 'public',
-    messages: [],
-    members: [1, 2, 3, 4, 5, 6, 7, 8, 9],
-    isAdmin: true,
-  },
-  { id: 2, name: 'UniLife', type: 'private', messages: [], members: [2, 3] },
-]);
+
+async function fetchChannels() {
+  try {
+    const response = await api.get('/api/channels');
+    channels.value = response.data;
+    if (channels.value.length > 0) {
+      activeChannel.value = channels.value[0];
+    }
+  } catch (error) {
+    console.error('Failed to fetch channels:', error);
+    // $q.notify({
+    //   type: 'negative',
+    //   message: 'Nepodarilo sa načítať kanály',
+    // });
+  }
+}
 
 const invitations = ref<Invitation[]>([{ id: 1, from: 'Tomas', channel: 'Developers' }]);
 
-const activeChannel = ref<Channel | null>(null);
 const currentMessages = computed(() => activeChannel.value?.messages || []);
 const invitationCount = computed(() => invitations.value.length);
 
@@ -757,7 +761,6 @@ const declineInvite = (id: number) =>
   (invitations.value = invitations.value.filter((i) => i.id !== id));
 
 // na filtrovanie v tych side baroch channel
-const channelFilter = ref<'all' | 'public' | 'private'>('all');
 const filteredChannels = computed(() => {
   if (channelFilter.value === 'all') return channels.value;
   return channels.value.filter((ch) => ch.type === channelFilter.value);
@@ -861,6 +864,7 @@ const handleNotificationClose = () => {
 // spustame fixne notifikaciu pri kazdom reloadnuti stranky
 onMounted(() => {
   triggerChatNotification();
+  void fetchChannels();
   // Nastavenie showChannels na false pre obrazovky < 700px
   if (isSmallScreen.value) {
     showChannels.value = false;
