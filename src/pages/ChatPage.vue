@@ -1014,7 +1014,7 @@ const sendMessage = async () => {
 }
 .typing-message {
   position: absolute;
-  bottom: 100px;
+  bottom: 10px;
   left: 12px;
   display: flex;
 }

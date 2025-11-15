@@ -3,26 +3,15 @@
     <!-- HEADER -->
     <q-header elevated>
       <q-toolbar>
-        <q-toolbar-title class="text-left">
-          Shello
-        </q-toolbar-title>
+        <q-toolbar-title class="text-left"> Shello </q-toolbar-title>
 
         <div v-if="isChatPage" class="row items-center q-gutter-sm">
+          <div class="q-pa-md text-weight-bold text-body1">{{ userProfile.nickname }}</div>
           <div class="relative-position">
-            <q-btn
-              flat
-              dense
-              round
-              aria-label="User"
-              @click="toggleRightDrawer"
-            >
-              <ProfilePicture
-                :avatar="uploadedAvatar"
-                size="33px"
-                bgColor="grey-4"
-              />
+            <q-btn flat dense round aria-label="User" @click="toggleRightDrawer">
+              <ProfilePicture :avatar="uploadedAvatar" size="33px" bgColor="grey-4" />
             </q-btn>
-            <q-badge color="red" floating transparent>
+            <q-badge v-if="notifications.length > 0" color="red" floating transparent>
               {{ notifications.length }}
             </q-badge>
           </div>
@@ -37,10 +26,8 @@
               self="top right"
               :offset="[0, 16]"
             >
-              <q-card style="min-width:200px;">
-                <q-card-section class="text-center">
-                  Do you want to log out?
-                </q-card-section>
+              <q-card style="min-width: 200px">
+                <q-card-section class="text-center"> Do you want to log out? </q-card-section>
                 <q-card-actions align="right">
                   <q-btn flat label="Cancel" color="black" v-close-popup />
                   <q-btn color="primary" label="Log out" @click="confirmLogout" />
@@ -63,24 +50,35 @@
         <q-expansion-item
           :model-value="profileExpanded"
           @update:model-value="toggleProfile"
-          icon="person"
-          :label="`${userProfile.first_name} ${userProfile.last_name}`"
+          :label="`${userProfile.firstName} ${userProfile.lastName}`"
           header-class="text-dark"
         >
+          <template v-slot:header>
+            <q-item-section avatar>
+              <ProfilePicture :avatar="uploadedAvatar" size="40px" bgColor="grey-4" />
+            </q-item-section>
+            <q-item-section>
+              {{ userProfile.firstName }} {{ userProfile.lastName }}
+            </q-item-section>
+          </template>
+
           <q-card flat class="q-pa-md">
             <q-card-section>
-              <div><strong>Name:</strong> {{ userProfile.first_name }} {{ userProfile.last_name }}</div>
+              <div>
+                <strong>Name:</strong> {{ userProfile.firstName }} {{ userProfile.lastName }}
+              </div>
               <div><strong>Nickname:</strong> {{ userProfile.nickname }}</div>
               <div><strong>Email:</strong> {{ userProfile.email }}</div>
-              <div><strong>Password:</strong> ********</div>
 
-              <q-btn flat color="primary" label="Edit" class="q-mt-md" @click="editProfile" />
+              <div class="row justify-end q-mt-md">
+                <q-btn flat color="primary" label="Edit Profile" @click="editProfile" />
+              </div>
             </q-card-section>
           </q-card>
         </q-expansion-item>
 
         <q-item clickable @click.stop="openSettingsMenu" class="text-dark">
-          <q-item-section avatar>
+          <q-item-section avatar class="q-pl-sm">
             <q-icon name="settings" />
           </q-item-section>
           <q-item-section>
@@ -89,19 +87,33 @@
           </q-item-section>
         </q-item>
 
-        <q-menu v-model="settingsMenuVisible" anchor="bottom middle" self="top middle" :offset="[0,8]">
-          <q-list style="min-width:150px;">
+        <q-menu
+          v-model="settingsMenuVisible"
+          anchor="bottom middle"
+          self="top middle"
+          :offset="[0, 8]"
+        >
+          <q-list style="min-width: 150px">
             <q-item clickable v-close-popup @click="showStatusDialog = true">
               <q-item-section>Statuses</q-item-section>
             </q-item>
           </q-list>
         </q-menu>
+
+        <q-item v-if="notifications.length > 0">
+          <q-item-section>
+            <div class="notification-message row items-center justify-between">
+              <span>{{ notifications[0]?.message }}</span>
+              <q-btn flat dense round icon="close" size="xs" @click="dismissNotification" />
+            </div>
+          </q-item-section>
+        </q-item>
       </q-list>
     </q-drawer>
 
     <!-- STATUS DIALOG -->
     <q-dialog v-model="showStatusDialog">
-      <q-card style="min-width: 300px;">
+      <q-card style="min-width: 300px">
         <q-card-section><div class="text-h6">Set your status</div></q-card-section>
         <q-card-actions align="right">
           <q-btn flat color="primary" label="Save" v-close-popup />
@@ -116,80 +128,98 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useQuasar } from 'quasar'
-import ProfilePicture from '../components/ProfilePicture.vue'
-import { authManager } from 'src/services'
-import {api} from 'src/boot/axios'
+import { ref, computed } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
+import { useQuasar } from 'quasar';
+import ProfilePicture from '../components/ProfilePicture.vue';
+import { authManager } from 'src/services';
+import { api } from 'src/boot/axios';
 
-const $q = useQuasar()
-const router = useRouter()
-const route = useRoute()
+import { useAuthStore } from 'src/stores/auth';
+
+const authStore = useAuthStore();
+const $q = useQuasar();
+const router = useRouter();
+const route = useRoute();
 
 // RESPONSIVE DRAWER
-const drawerWidth = computed(() => ($q.screen.xs ? $q.screen.width : 350))
+const drawerWidth = computed(() => ($q.screen.xs ? $q.screen.width : 350));
+
+function dismissNotification() {
+  notifications.value.shift();
+}
+
+const uploadedAvatar = computed(() => {
+  return authStore.user?.avatar || undefined;
+});
+const userProfile = computed(() => {
+  if (!authStore.user) {
+    return {
+      //pre istotku
+      first_name: 'Guest',
+      last_name: '',
+      nickname: 'Guest',
+      email: '',
+      password: '',
+    };
+  }
+  return {
+    firstName: authStore.user.firstName,
+    lastName: authStore.user.lastName,
+    nickname: authStore.user.nickname,
+    email: authStore.user.email,
+  };
+});
 
 // SHOW ELEMENTS ONLY ON CHAT PAGE
-const isChatPage = computed(() => route.path === '/channels')
-
-// USER MOCK DATA
-const uploadedAvatar = ref<string | undefined>(undefined)
-const userProfile = ref({
-  first_name: 'Terezia',
-  last_name: 'Stevulova',
-  nickname: 'Ivanka',
-  email: 'tereza.stevulova@example.com',
-  password: '12345'
-})
+const isChatPage = computed(() => route.path === '/channels');
 
 // NOTIFICATIONS
-const notifications = ref([{ message: 'This channel has been inactive for 30 days...' }])
+const notifications = ref([{ message: 'This channel has been inactive for 30 days...' }]);
 
 // MENU STATES
-const rightDrawerOpen = ref(false)
-const showLogoutMenu = ref(false)
-const profileExpanded = ref(false)
-const settingsMenuVisible = ref(false)
-const showStatusDialog = ref(false)
+const rightDrawerOpen = ref(false);
+const showLogoutMenu = ref(false);
+const profileExpanded = ref(false);
+const settingsMenuVisible = ref(false);
+const showStatusDialog = ref(false);
 
 // ACTIONS
 function toggleRightDrawer() {
-  rightDrawerOpen.value = !rightDrawerOpen.value
+  rightDrawerOpen.value = !rightDrawerOpen.value;
 }
 
 function toggleProfile(v: boolean) {
-  profileExpanded.value = v
-  settingsMenuVisible.value = false
+  profileExpanded.value = v;
+  settingsMenuVisible.value = false;
 }
 
 function openSettingsMenu() {
-  settingsMenuVisible.value = !settingsMenuVisible.value
+  settingsMenuVisible.value = !settingsMenuVisible.value;
 }
 
 function editProfile() {}
 
 async function confirmLogout() {
-  showLogoutMenu.value = false
+  showLogoutMenu.value = false;
 
-  try{
-    await api.post('/auth/logout', {})
+  try {
+    await api.post('/auth/logout', {});
   } catch (error) {
-    console.error('Logout API call failed:', error)
+    console.error('Logout API call failed:', error);
   }
-  authManager.logout()
-  await router.push({ name: 'login' })
+  authManager.logout();
+  await router.push({ name: 'login' });
 }
 </script>
 
 <style scoped>
 .notification-message {
-  background-color: #F44336;
+  background-color: #f44336;
   padding: 8px;
   border-radius: 4px;
 }
 .text-dark {
   color: #424242 !important;
 }
-
 </style>

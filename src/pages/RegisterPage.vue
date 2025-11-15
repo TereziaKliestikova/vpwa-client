@@ -1,16 +1,12 @@
 <template>
   <q-page class="flex flex-center bg-secondary">
-    <q-card style="width: 400px; position: relative;" flat bordered>
+    <q-card style="width: 400px; position: relative" flat bordered>
       <q-form @submit="onSubmit" class="q-pa-lg q-gutter-y-md">
         <div class="text-h6 q-mb-lg text-left">Register</div>
 
         <!-- Avatar + Upload -->
         <div class="profile-wrapper column items-center q-mb-md">
-          <ProfilePicture
-            :avatar="uploadedAvatar"
-            size="80px"
-            bgColor="grey-4"
-          />
+          <ProfilePicture :avatar="uploadedAvatar" size="80px" bgColor="grey-4" />
           <q-btn
             flat
             color="primary"
@@ -57,34 +53,52 @@
           </template>
         </q-input>
 
-        <q-input
-          v-model.trim="form.nickName"
-          label="Nickname*"
-          outlined
-          required
-          dense
-          maxlength="20"
-          :rules="[(val) => !!val || '']"
-        >
-          <template v-slot:before>
-            <q-icon name="person" size="20px" class="q-mr-sm" />
-          </template>
-        </q-input>
+        <div class="relative-position">
+          <q-input
+            v-model.trim="form.nickname"
+            label="Nickname*"
+            outlined
+            required
+            dense
+            maxlength="20"
+            :rules="[(val) => !!val || '']"
+          >
+            <template v-slot:before>
+              <q-icon name="person" size="20px" class="q-mr-sm" />
+            </template>
+          </q-input>
+          <div
+            v-if="errorMessageNickname"
+            class="text-negative text-caption absolute-bottom-left q-pl-sm"
+            style="left: 30px"
+          >
+            {{ errorMessageNickname }}
+          </div>
+        </div>
 
-        <q-input
-          v-model.trim="form.email"
-          label="Email*"
-          type="email"
-          outlined
-          required
-          dense
-          maxlength="30"
-          :rules="[(val) => !!val || '']"
-        >
-          <template v-slot:before>
-            <q-icon name="mail" size="20px" class="q-mr-sm" />
-          </template>
-        </q-input>
+        <div class="relative-position">
+          <q-input
+            v-model.trim="form.email"
+            label="Email*"
+            type="email"
+            outlined
+            required
+            dense
+            maxlength="30"
+            :rules="[(val) => !!val || '']"
+          >
+            <template v-slot:before>
+              <q-icon name="mail" size="20px" class="q-mr-sm" />
+            </template>
+          </q-input>
+          <div
+            v-if="errorMessageEmail"
+            class="text-negative text-caption absolute-bottom-left q-pl-sm"
+            style="left: 30px"
+          >
+            {{ errorMessageEmail }}
+          </div>
+        </div>
 
         <q-input
           v-model="form.password"
@@ -98,7 +112,8 @@
             (val) => val.length >= 8 || 'At least 8 characters',
             (val) => /[0-9]/.test(val) || 'At least one number',
             (val) => /[A-Z]/.test(val) || 'At least one uppercase letter',
-            (val) => /[/.?!@#$%^&*()]/.test(val) || 'At least one special character (./?!@#$%^&*())'
+            (val) =>
+              /[/.?!@#$%^&*()]/.test(val) || 'At least one special character (./?!@#$%^&*())',
           ]"
         >
           <template v-slot:before>
@@ -142,80 +157,116 @@
           color="primary"
           class="full-width bg-yellow-8"
           :loading="loading"
-          :disable="loading || passwordConfirmation"          
+          :disable="loading || passwordConfirmation"
         />
+        <div class="text-negative" v-if="errorMessageOther">
+          {{ errorMessageOther }}
+        </div>
 
         <!-- Prihlásenie -->
         <div class="q-mt-md text-center">
           <span>Already have an account? </span>
           <q-btn flat color="primary" :to="{ name: 'login' }">SIGN IN</q-btn>
         </div>
-
       </q-form>
     </q-card>
   </q-page>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
-import { useRouter } from 'vue-router'
-import { useAuthStore } from 'src/stores/auth'
-import ProfilePicture from '../components/ProfilePicture.vue'
+import { reactive, ref, computed } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from 'src/stores/auth';
+import ProfilePicture from '../components/ProfilePicture.vue';
 
-const router = useRouter()
-const authStore = useAuthStore()
+const router = useRouter();
+const authStore = useAuthStore();
 
 const form = reactive({
   firstName: '',
   lastName: '',
-  nickName: '',
+  nickname: '',
   email: '',
   password: '',
-  passwordConfirmation: ''
-})
+  passwordConfirmation: '',
+});
 
-const showPassword = ref(false)
-const uploadedAvatar = ref<string | undefined>(undefined)
-const fileInput = ref<HTMLInputElement | null>(null)
+const showPassword = ref(false);
+const uploadedAvatar = ref<string | undefined>(undefined);
+const fileInput = ref<HTMLInputElement | null>(null);
 
-const loading = computed(() => authStore.status === 'pending')
+const loading = computed(() => authStore.status === 'pending');
 const passwordConfirmation = computed(() => {
-  return form.passwordConfirmation !== '' && form.passwordConfirmation !== form.password
-})
+  return form.passwordConfirmation !== '' && form.passwordConfirmation !== form.password;
+});
 
-const triggerFileInput = () => fileInput.value?.click()
+const triggerFileInput = () => fileInput.value?.click();
 
 const handleFileUpload = (event: Event) => {
-  const target = event.target as HTMLInputElement
-  const file = target.files?.[0]
-  if (!file) return
-  const reader = new FileReader()
+  const target = event.target as HTMLInputElement;
+  const file = target.files?.[0];
+  if (!file) return;
+  const reader = new FileReader();
   reader.onload = (e) => {
-    uploadedAvatar.value = e.target?.result as string
-  }
-  reader.readAsDataURL(file)
-}
+    uploadedAvatar.value = e.target?.result as string;
+  };
+  reader.readAsDataURL(file);
+};
 
+const errorMessageEmail = ref('');
+const errorMessageNickname = ref('');
+const errorMessageOther = ref('');
 const onSubmit = async () => {
-  if (passwordConfirmation.value) return
+  if (passwordConfirmation.value) return;
+
+  errorMessageEmail.value = '';
+  errorMessageNickname.value = '';
+  errorMessageOther.value = '';
 
   const registerData = {
     firstName: form.firstName,
     lastName: form.lastName,
-    nickName: form.nickName,
+    nickname: form.nickname,
     email: form.email,
     password: form.password,
     passwordConfirmation: form.passwordConfirmation,
-    avatar: uploadedAvatar.value // base64 string
-  }
+    avatar: uploadedAvatar.value, // base64 string
+  };
 
   try {
-    await authStore.register(registerData)
-    await router.push({ name: 'login' })
-  } catch (err) {
-    console.error('Registration failed:', err)
+    await authStore.register(registerData);
+    await router.push({ name: 'login' });
+  } catch (err: unknown) {
+    console.error('Registration failed:', err);
+
+    if (err && typeof err === 'object' && 'response' in err) {
+      const axiosError = err as {
+        response?: { data?: { errors?: Array<{ field?: string; message?: string }> } };
+      };
+      const errors = axiosError.response?.data?.errors;
+
+      if (errors && errors.length > 0) {
+        // Show ALL errors at once
+        errors.forEach((error) => {
+          if (error.field === 'email') {
+            errorMessageEmail.value = 'There is already an account with this email';
+          } else if (error.field === 'nickname') {
+            errorMessageNickname.value = 'Nickname already exists';
+          }
+        });
+
+        // If no specific field errors, show general error
+        if (!errorMessageEmail.value && !errorMessageNickname.value && !errorMessageOther.value) {
+          errorMessageOther.value = 'Registration failed';
+        }
+      } else {
+        errorMessageOther.value = 'Registration failed. Please try again.';
+      }
+    } else {
+      errorMessageOther.value = 'Registration failed. Please try again.';
+    }
   }
-}
+};
 </script>
 
 <style scoped>
