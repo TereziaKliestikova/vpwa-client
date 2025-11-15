@@ -27,7 +27,7 @@ export interface User {
   firstName: string;
   lastName: string;
   nickname: string | null;
-  avatar: string;
+  avatar: string | null;
   displayName: string;
   createdAt: string;
   updatedAt: string;
