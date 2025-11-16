@@ -103,20 +103,15 @@
                 <div v-if="isLoadingMore" class="flex justify-center q-my-sm">
                   <q-spinner size="24px" color="primary" />
                 </div>
-                <div v-for="msg in visibleMessages" :key="msg.id" class="q-mb-sm message-container">
-                  <!-- spravy od nas doprava -->
-                  <div v-if="msg.user === 'You'" class="row justify-end items-start q-gutter-sm">
-                    <div
-                      :class="{
-                        'mention-message q-pa-sm rounded-borders': msg.text.includes('@'),
-                        'bg-primary text-white q-pa-sm rounded-borders': !msg.text.includes('@'),
-                      }"
-                      style="text-align: end"
-                    >
+                <div v-for="msg in visibleMessages" :key="msg.id" class="q-mb-sm">
+                  <!-- nasa sprava je napravo a zlta -->
+                  <div v-if="isMyMessage(msg)" class="row justify-end">
+                    <div class="my-message q-pa-sm rounded-borders">
                       {{ msg.text }}
                     </div>
                   </div>
-                  <!-- ostatni dolava -->
+
+                  <!-- CUDZIA SPRÁVA → NA ĽAVO -->
                   <div v-else class="row justify-start items-end q-gutter-sm">
                     <div class="relative-position">
                       <ProfilePicture
@@ -131,23 +126,16 @@
                       ></div>
                     </div>
                     <div class="column items-start">
-                      <!-- meno nad správou -->
-                      <div class="message-username text-caption text-grey-6 q-mb-xs">
+                      <div class="text-caption text-grey-6 q-mb-xs">
                         {{ msg.user }}
                       </div>
-
-                      <!-- text správy -->
-                      <div
-                        :class="{
-                          'mention-message q-pa-sm rounded-borders': msg.text.includes('@'),
-                          'bg-grey-2 q-pa-sm rounded-borders': !msg.text.includes('@'),
-                        }"
-                      >
+                      <div class="other-message q-pa-sm rounded-borders">
                         {{ msg.text }}
                       </div>
                     </div>
                   </div>
                 </div>
+                
                 <!-- Milan nam pise -->
                 <div
                   v-if="activeChannel?.name === 'UniLife'"
@@ -439,9 +427,12 @@ import ChatNotification from '../components/ChatNotification.vue';
 import ChannelListSide from '../components/ChannelListSide.vue';
 import type { QScrollArea } from 'quasar';
 import type { Channel } from 'src/types/channel';
+import channelService from 'src/services/ChannelService';
+
 
 // backend
 import { api } from 'src/boot/axios';
+import { useChannelsStore } from 'src/stores/channels';
 
 type UserStatus = 'online' | 'dnd' | 'offline';
 
@@ -629,8 +620,15 @@ async function fetchChannels() {
 
 const invitations = ref<Invitation[]>([{ id: 1, from: 'Tomas', channel: 'Developers' }]);
 
-const currentMessages = computed(() => activeChannel.value?.messages || []);
 const invitationCount = computed(() => invitations.value.length);
+
+
+const channelsStore = useChannelsStore();
+const currentMessages = computed(() => {
+  if (!activeChannel.value) return [];
+  return channelsStore.messages[activeChannel.value.name] || [];
+});
+
 
 // const showAddFriendDialog = ref(false);
 const showInvitationsDialog = ref(false);
@@ -705,16 +703,31 @@ const scrollToBottom = async () => {
   target.scrollTop = target.scrollHeight;
 };
 
-const selectChannel = (ch: Channel) => {
-  if (activeChannel.value?.id === ch.id) {
-    activeChannel.value = null; //zrusime vyber a zobrazi placeholder
-  } else {
-    activeChannel.value = ch;
-    // skryt side panel len na malych obrazovkach
-    if (isSmallScreen.value) {
-      showChannels.value = false;
-    }
+const selectChannel = async (ch: Channel) => {
+  activeChannel.value = ch;
+  const socket = channelService.join(ch.name);
+
+  await new Promise<void>((resolve) => socket.socket.once("connect", resolve));
+
+  try {
+    await socket.joinChannel();
+  } catch {
+    systemMessage.value = "Failed to join";
+    return;
   }
+
+  try {
+    const messages = await socket.loadMessages();
+    const store = useChannelsStore();
+    messages.forEach(m => store.newMessage(ch.name, m));
+  } catch {
+    systemMessage.value = "You are not a member";
+    return;
+  }
+
+  if (isSmallScreen.value) showChannels.value = false;
+  await nextTick();
+  await scrollToBottom();
 };
 
 // const addFriend = () => {
@@ -903,66 +916,190 @@ watch(showCreateChannelDialog, (newVal) => {
 //   }}
 // )
 
+import { useAuthStore } from 'src/stores/auth';
+import type { DisplayMessage } from 'src/types/message';
+import type { SerializedMessage } from 'src/contracts';
+
+const authStore = useAuthStore();
+
+const isMyMessage = (msg: DisplayMessage) => {
+  const myName = authStore.user?.nickname;
+  return msg.user === myName;
+};
+
 const sendMessage = async () => {
   const text = newMessage.value.trim();
-  if (!text) return;
+  if (!text || !activeChannel.value) return;
 
-  if (text.startsWith('/')) {
-    const parts = text.slice(1).split(' ');
-    const command = parts[0]?.toLowerCase() ?? '';
+  const channelName = activeChannel.value.name;
+  let socket = channelService.in(channelName);
+  if (!socket) socket = channelService.join(channelName);
 
-    if (command === 'join') {
-      const channelName = parts[1]?.trim();
-      let type: 'public' | 'private' = 'public';
-      const rest = parts.slice(2).join(' ').toLowerCase();
-      if (rest.includes('private')) type = 'private';
+  try {
+    // === 1. PRÍKAZY (nechaj ako je) ===
+    if (text.startsWith("/")) {
+      const parts = text.slice(1).split(" ");
+      const command = parts[0]?.toLowerCase() ?? "";
+      if (command === "join") {
+        const inputName = parts[1]?.trim();
+        if (!inputName) {
+          systemMessage.value = "Usage: /join channelName [private]";
+          return;
+        }
+        const type: 'public' | 'private' = parts.slice(2).join(" ").toLowerCase().includes("private")
+          ? "private"
+          : "public";
 
-      if (!channelName) {
-        systemMessage.value = 'Usage: /join channelName [private]';
-      } else {
-        const ch = channels.value.find((c) => c.name.toLowerCase() === channelName.toLowerCase());
-        if (!ch) {
-          const newCh: Channel = {
+        let ch = channels.value.find(c => c.name.toLowerCase() === inputName.toLowerCase());
+        if (ch) {
+          systemMessage.value = `Joined channel "${ch.name}"`;
+        } else {
+          ch = {
             id: channels.value.length + 1,
-            name: channelName,
+            name: inputName,
             type,
             messages: [],
-            members: [0],
+            members: [],
             isAdmin: true,
           };
-          channels.value.unshift(newCh);
-          activeChannel.value = newCh;
-          systemMessage.value = `Channel "${channelName}" created (${type})`;
+          channels.value.unshift(ch);
+          systemMessage.value = `Channel "${inputName}" created (${type})`;
         }
+        activeChannel.value = ch;
+
+        const socket = channelService.join(ch.name);
+        if (!socket.socket.connected) {
+          await new Promise<void>((resolve) => socket.socket.once("connect", resolve));
+        }
+
+        try {
+          await socket.joinChannel();
+          systemMessage.value = `Joined ${ch.name}`;
+        } catch (err) {
+          systemMessage.value = "Failed to join channel";
+          console.error(err);
+          return;
+        }
+
+        try {
+          const messages = await socket.loadMessages();
+          const store = useChannelsStore();
+          messages.forEach(m => store.newMessage(ch.name, m)); // ← POUŽI STORE!
+        } catch (err) {
+          systemMessage.value = "You are not a member";
+          console.error(err);
+          return;
+        }
+
+        await nextTick();
+        await scrollToBottom();
       }
-    } else if (command === 'list') {
-      if (activeChannel.value) {
+      else if (command === "list") {
         showMembersDialog.value = true;
-      } else {
-        systemMessage.value = 'No channel selected';
       }
-    } else {
-      systemMessage.value = 'Unknown command: ' + text;
+      else {
+        systemMessage.value = "Unknown command: " + text;
+      }
     }
-  } else if (activeChannel.value) {
-    const target = activeChannel.value;
-    if (target?.messages) {
-      target.messages.push({
-        id: Date.now(),
-        user: 'You',
-        text,
-      });
+
+    // === 2. NORMÁLNA SPRÁVA ===
+    else {
+      const myNickname = authStore.user?.nickname;
+
+      // 1. OPTIMISTICKY PRIDAJ (žltá bublina hneď!)
+      const tempId = Date.now();
+      const store = useChannelsStore();
+      store.newMessage(channelName, {
+        id: tempId,
+        createdBy: authStore.user!.id,
+        content: text,
+        channelId: 0, // dočasné
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        author: {
+          id: authStore.user!.id,
+          email: authStore.user!.email,
+          nickname: myNickname,
+        },
+      } as SerializedMessage);
+
+      await nextTick();
+      await scrollToBottom();
+      // 2. POŠLI NA SERVER
+      await socket.addMessage(text);
+
+      // 3. ODSTRÁŇ DOČASNÚ (server pošle správu cez WebSocket)
+      const idx = store.messages[channelName].findIndex(m => m.id === tempId);
+      if (idx !== -1) {
+        store.messages[channelName].splice(idx, 1);
+      }
     }
-    await nextTick();
-    await scrollToBottom();
-  } else {
-    systemMessage.value = 'You are outside of channel';
   }
-  newMessage.value = '';
+  catch (err: unknown) {
+    console.error("Send error:", err);
+    systemMessage.value = err instanceof Error ? err.message : "Failed to send";
+  }
+  finally {
+    newMessage.value = "";
+  }
 };
+
+// const sendMessage = async () => {
+//   const text = newMessage.value.trim();
+//   if (!text) return;
+
+//   if (!activeChannel.value) {
+//     systemMessage.value = 'You are outside of channel';
+//     return;
+//   }
+
+//   const channelName = activeChannel.value.name;
+//   const manager = channelService.in(channelName);
+
+//   if (!manager) {
+//     systemMessage.value = 'You are not joined in this channel';
+//     return;
+//   }
+
+//   try {
+//     // posielame správu cez ChannelService
+//     const newMsg = await manager.addMessage(text);
+
+//     // ak máme activeChannel a messages, pridáme novú správu
+//     if (newMsg && activeChannel.value.messages) {
+//       activeChannel.value.messages.push({
+//         id: newMsg.id,
+//         user: newMsg.author.nickname,   // meno autora
+//         text: newMsg.content,       // obsah správy
+//       });
+//     }
+
+//     await nextTick();
+//     await scrollToBottom();
+//   } catch (err) {
+//     console.error('Failed to send message:', err);
+//     systemMessage.value = 'Failed to send message';
+//   }
+
+//   newMessage.value = '';
+// };
+
 </script>
 
 <style scoped>
+
+.my-message {
+  background: #FFD700 !important;
+  color: black;
+  max-width: 70%;
+  word-wrap: break-word;
+}
+.other-message {
+  background: #f5f5f5;
+  color: black;
+  max-width: 70%;
+  word-wrap: break-word;
+}
 .scroll {
   overflow-y: auto;
   height: 100%;

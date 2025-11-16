@@ -98,6 +98,18 @@
               <q-item-section>Statuses</q-item-section>
             </q-item>
           </q-list>
+          <q-item>
+              <q-item-section>
+                <q-toggle
+                  v-model="notifyOnlyWhenTagged"
+                  label="Notify only when tagged"
+                  @update:model-value="handleNotifyToggle"
+                >
+                  <q-tooltip>Receive notifications only when mentioned or tagged</q-tooltip>
+                </q-toggle>
+              </q-item-section>
+            </q-item>
+
         </q-menu>
 
         <q-item v-if="notifications.length > 0">
@@ -170,6 +182,11 @@ const userProfile = computed(() => {
     email: authStore.user.email,
   };
 });
+
+const notifyOnlyWhenTagged = ref(false);
+function handleNotifyToggle(value: boolean) {
+  console.log('Notify only when tagged:', value);
+}
 
 // SHOW ELEMENTS ONLY ON CHAT PAGE
 const isChatPage = computed(() => route.path === '/channels');

@@ -1,116 +1,106 @@
-// src/stores/channels.ts
-//toto este nikde nevyuzivame ale povedal mi to claude
-import { defineStore } from 'pinia';
-import { api } from 'src/boot/axios';
+import { defineStore } from "pinia";
+import type { SerializedMessage } from "src/contracts";
+import channelService from "src/services/ChannelService";
+import type { DisplayMessage } from 'src/types/message';
 
-interface Member {
-  id: number;
-  name: string;
-  avatar: string;
-  isAdmin: boolean;
-}
 
-interface Message {
-  id: number;
-  user: string;
-  text: string;
-}
+// potrebne spravit npm install socket.io-client terezkaaaaaa
 
-interface Channel {
-  id: number;
-  name: string;
-  type: 'public' | 'private';
-  members: Member[];
-  messages?: Message[];
-  isAdmin: boolean;
-}
-
-export const useChannelsStore = defineStore('channels', {
+export const useChannelsStore = defineStore("channels", {
   state: () => ({
-    channels: [] as Channel[],
-    activeChannel: null as Channel | null,
     loading: false,
+    error: null as Error | null,
+    messages: {} as Record<string, DisplayMessage[]>,
+    active: null as string | null,
   }),
 
   getters: {
-    getChannelById: (state) => (id: number) => {
-      return state.channels.find((ch) => ch.id === id);
+    joinedChannels(state) {
+      return Object.keys(state.messages);
     },
-
-    channelMembers: (state) => {
-      return state.activeChannel?.members || [];
+    currentMessages(state) {
+      return state.active !== null ? state.messages[state.active] : [];
     },
-
-    publicChannels: (state) => {
-      return state.channels.filter((ch) => ch.type === 'public');
-    },
-
-    privateChannels: (state) => {
-      return state.channels.filter((ch) => ch.type === 'private');
+    lastMessageOf: (state) => (channel: string) => {
+      const msgs = state.messages[channel];
+      return msgs?.length ? msgs[msgs.length - 1] : null;
     },
   },
 
   actions: {
-    async fetchChannels() {
-      this.loading = true;
+    // Pripojenie k channel a načítanie histórie
+    async join(channel: string) {
       try {
-        const response = await api.get('/api/channels');
-        this.channels = response.data;
+        this.loading = true;
+        this.error = null;
 
-        // Set first channel as active if none selected
-        if (!this.activeChannel && this.channels.length > 0) {
-          this.activeChannel = this.channels[0];
-        }
-      } catch (error) {
-        console.error('Failed to fetch channels:', error);
+        const socket = channelService.join(channel);
+        const messages = await socket.loadMessages();
+
+        this.messages[channel] = messages.map(m => ({
+              id: m.id,
+              user: m.author.nickname || m.author.email.split('@')[0],
+              text: m.content,
+            }));
+        this.active = channel;
+      } catch (err) {
+        this.error = err as Error;
+        throw err;
       } finally {
         this.loading = false;
       }
     },
 
-    setActiveChannel(channel: Channel | null) {
-      this.activeChannel = channel;
+    // Odpojenie z channel
+    leave(channel: string | null) {
+      const leaving = channel ? [channel] : this.joinedChannels;
+
+      leaving.forEach((c) => {
+        channelService.leave(c); // sync, žiadne await
+        delete this.messages[c];
+        if (this.active === c) this.active = null;
+      });
     },
 
-    async createChannel(name: string, type: 'public' | 'private', memberIds: number[]) {
-      try {
-        const response = await api.post('/api/channels', {
-          name,
-          type,
-          memberIds,
-        });
-        this.channels.unshift(response.data);
-        this.activeChannel = response.data;
-      } catch (error) {
-        console.error('Failed to create channel:', error);
-        throw error;
-      }
-    },
+    // Odoslanie správy
+    async addMessage(channel: string, text: string) {
+      const socket = channelService.in(channel);
+      if (!socket) return;
 
-    async leaveChannel(channelId: number) {
-      try {
-        await api.post(`/api/channels/${channelId}/leave`);
-        this.channels = this.channels.filter((ch) => ch.id !== channelId);
-        if (this.activeChannel?.id === channelId) {
-          this.activeChannel = null;
+      const newMessage = await socket.addMessage(text);
+
+      if (!this.messages[channel]) this.messages[channel] = [];
+
+      this.messages[channel].push({
+          id: newMessage.id,
+          user: newMessage.author.nickname || newMessage.author.email.split('@')[0],
+          text: newMessage.content,
+        });    
+      },
+
+    // Prijatie správy z socketu (real-time)
+      newMessage(channel: string, message: SerializedMessage) {
+        if (!this.messages[channel]) {
+          this.messages[channel] = [];
         }
-      } catch (error) {
-        console.error('Failed to leave channel:', error);
-        throw error;
-      }
-    },
 
-    async deleteChannel(channelId: number) {
-      try {
-        await api.delete(`/api/channels/${channelId}`);
-        this.channels = this.channels.filter((ch) => ch.id !== channelId);
-        if (this.activeChannel?.id === channelId) {
-          this.activeChannel = null;
+        // ZABRAŇ DUPLIKÁCII PODĽA ID
+        const exists = this.messages[channel].some(m => m.id === message.id);
+        if (exists) {
+          console.log("DUPLICATE IGNORED:", message.id, message.content);
+          return;
         }
-      } catch (error) {
-        console.error('Failed to delete channel:', error);
-        throw error;
-      }
+        const user = message.author.nickname;
+
+        this.messages[channel].push({
+          id: message.id,
+          user,
+          text: message.content,
+        } as DisplayMessage);
+      },
+
+      setActive(channel: string) {
+      this.active = channel;
     },
   },
 });
