@@ -12,8 +12,8 @@
     "paths": {
       "@/*": ["src/*"]
     },
-    "types": ["quasar"]
+    "types": ["quasar", "node"]
   },
-  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue"],
+  "include": ["src/**/*.ts", "src/**/*.d.ts", "src/**/*.tsx", "src/**/*.vue", "quasar.config.ts"],
   "exclude": ["node_modules", "dist", ".quasar"]
 }
