@@ -1069,6 +1069,7 @@ const sendMessage = async () => {
 .other-message {
   background: #f5f5f5;
   color: black;
+  max-width: 700px;
 }
 
 .q-pa-sm.rounded-borders {
