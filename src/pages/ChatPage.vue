@@ -130,11 +130,14 @@
                         {{ msg.user }}
                       </div>
 
-                      <div class="q-pa-sm rounded-borders transition-all" :class="['other-message',
-                          { 
+                      <div
+                        class="q-pa-sm rounded-borders transition-all"
+                        :class="[
+                          'other-message',
+                          {
                             'mention-highlight': msg.isMentioned,
-                            'mention-pulse': msg.isMentioned 
-                          }
+                            'mention-pulse': msg.isMentioned,
+                          },
                         ]"
                       >
                         {{ msg.text }}
@@ -142,7 +145,7 @@
                     </div>
                   </div>
                 </div>
-                
+
                 <!-- Milan nam pise -->
                 <div
                   v-if="activeChannel?.name === 'UniLife'"
@@ -258,7 +261,7 @@
 
     <!-- create channel -->
     <q-dialog v-model="showCreateChannelDialog">
-      <q-card style="min-width: 400px">
+      <q-card style="width: 400px">
         <q-card-section>
           <div class="text-h6">Create Channel</div>
         </q-card-section>
@@ -273,16 +276,25 @@
             autofocus
           />
 
-          <q-select
-            v-model="selectedFriends"
-            multiple
-            :options="users.map((f) => ({ label: f.name, value: f.id }))"
-            label="Invite people"
-            outlined
-            dense
-            use-chips
-            class="q-mt-md"
-          />
+          <div class="relative-position q-mt-md">
+            <q-select
+              v-model="selectedNicknames"
+              multiple
+              use-input
+              use-chips
+              input-debounce="0"
+              new-value-mode="add-unique"
+              label="Invite people (type nicknames)"
+              outlined
+              dense
+              class="q-mt-md"
+              hint="Press Enter after each nickname"
+              @new-value="validateNickname"
+            />
+            <div v-if="invalidNicknamesError" class="text-negative text-caption q-mt-xs q-pl-sm">
+              {{ invalidNicknamesError }}
+            </div>
+          </div>
 
           <q-select
             v-model="newChannelType"
@@ -314,7 +326,7 @@
 
         <q-card-section>
           <q-select
-            v-model="selectedFriends"
+            v-model="selectedNicknames"
             multiple
             :options="users.map((f) => ({ label: f.name, value: f.id }))"
             label="Select friends to add"
@@ -340,7 +352,7 @@
 
         <q-card-section>
           <q-select
-            v-model="selectedFriends"
+            v-model="selectedNicknames"
             multiple
             :options="getChannelMembers()"
             label="Select members to remove"
@@ -436,7 +448,6 @@ import type { QScrollArea } from 'quasar';
 import type { Channel } from 'src/types/channel';
 import channelService from 'src/services/ChannelService';
 
-
 // backend
 import { api } from 'src/boot/axios';
 import { useChannelsStore } from 'src/stores/channels';
@@ -464,8 +475,12 @@ interface Invitation {
 }
 
 const channelMembers = computed(() => {
-  if (!activeChannel.value?.members) return [];
-  return users.value.filter((u) => activeChannel.value!.members!.includes(u.id));
+  return channelsStore.activeChannelMembers.map((m) => ({
+    id: m.id,
+    name: m.name,
+    avatar: m.avatar,
+    status: 'online' as UserStatus, // TODO: Add real status
+  }));
 });
 
 // Quasar breakpoint
@@ -503,8 +518,8 @@ const userStatus = ref<UserStatus>('online');
 // zobrazenie channel a friends listu
 const showChannels = ref(true);
 const showFriends = ref(false);
-const channels = ref<Channel[]>([]);
-const activeChannel = ref<Channel | null>(null);
+const channels = computed(() => channelsStore.channelsList);
+const activeChannel = computed(() => channelsStore.activeChannel);
 const channelFilter = ref<'all' | 'public' | 'private'>('all');
 
 const toggleChannels = () => {
@@ -609,33 +624,31 @@ const getUserByName = (name: string): User => {
 
 const newChannelType = ref<'public' | 'private'>('public');
 
-async function fetchChannels() {
-  try {
-    const response = await api.get('/api/channels');
-    channels.value = response.data;
-    if (channels.value.length > 0) {
-      activeChannel.value = channels.value[0];
-    }
-  } catch (error) {
-    console.error('Failed to fetch channels:', error);
-    // $q.notify({
-    //   type: 'negative',
-    //   message: 'Nepodarilo sa načítať kanály',
-    // });
-  }
-}
+// async function fetchChannels() {
+//   try {
+//     const response = await api.get('/api/channels');
+//     channels.value = response.data;
+//     if (channels.value.length > 0) {
+//       activeChannel.value = channels.value[0];
+//     }
+//   } catch (error) {
+//     console.error('Failed to fetch channels:', error);
+//     // $q.notify({
+//     //   type: 'negative',
+//     //   message: 'Nepodarilo sa načítať kanály',
+//     // });
+//   }
+// }
 
 const invitations = ref<Invitation[]>([{ id: 1, from: 'Tomas', channel: 'Developers' }]);
 
 const invitationCount = computed(() => invitations.value.length);
-
 
 const channelsStore = useChannelsStore();
 const currentMessages = computed(() => {
   if (!activeChannel.value) return [];
   return channelsStore.messages[activeChannel.value.name] || [];
 });
-
 
 // const showAddFriendDialog = ref(false);
 const showInvitationsDialog = ref(false);
@@ -646,16 +659,26 @@ const showStatusDialog = ref(false);
 const showMembersDialog = ref(false);
 // const newFriendName = ref('');
 const newChannelName = ref('');
-const selectedFriends = ref<number[]>([]);
+const selectedNicknames = ref<string[]>([]);
 
-const dummyMessages = Array.from({ length: 40 }, (_, i) => ({
-  id: i + 1,
-  user: i % 2 === 0 ? 'You' : 'Maggie',
-  text: i % 2 === 0 ? `Tvoja správa ${i + 1}` : `Maggie odpoveď ${i + 1}`,
-}));
+const validateNickname = (
+  val: string,
+  done: (item?: string, mode?: 'toggle' | 'add' | 'add-unique') => void,
+) => {
+  // Just add the nickname - we'll validate on backend
+  if (val.length > 0) {
+    done(val, 'add-unique');
+  }
+};
 
-const dummy_chat = channels.value.find((f) => f.name === 'General');
-if (dummy_chat) dummy_chat.messages = dummyMessages;
+// const dummyMessages = Array.from({ length: 40 }, (_, i) => ({
+//   id: i + 1,
+//   user: i % 2 === 0 ? 'You' : 'Maggie',
+//   text: i % 2 === 0 ? `Tvoja správa ${i + 1}` : `Maggie odpoveď ${i + 1}`,
+// }));
+
+// const dummy_chat = channels.value.find((f) => f.name === 'General');
+// if (dummy_chat) dummy_chat.messages = dummyMessages;
 
 // Definícia channelMembers
 // const channelMembers = computed(() => {
@@ -711,24 +734,24 @@ const scrollToBottom = async () => {
 };
 
 const selectChannel = async (ch: Channel) => {
-  activeChannel.value = ch;
+  channelsStore.setActive(ch.name);
   const socket = channelService.join(ch.name);
 
-  await new Promise<void>((resolve) => socket.socket.once("connect", resolve));
+  await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
 
   try {
     await socket.joinChannel();
   } catch {
-    systemMessage.value = "Failed to join";
+    systemMessage.value = 'Failed to join';
     return;
   }
 
   try {
     const messages = await socket.loadMessages();
     const store = useChannelsStore();
-    messages.forEach(m => store.newMessage(ch.name, m));
+    messages.forEach((m) => store.newMessage(ch.name, m));
   } catch {
-    systemMessage.value = "You are not a member";
+    systemMessage.value = 'You are not a member';
     return;
   }
 
@@ -767,16 +790,15 @@ const selectChannel = async (ch: Channel) => {
 const openInvitations = () => (showInvitationsDialog.value = true);
 const acceptInvite = (id: number) => {
   const inv = invitations.value.find((i) => i.id === id);
-  const newCh: Channel = {
-    id: channels.value.length + 1,
-    name: inv?.channel || 'New Channel',
-    type: 'private',
-    messages: [],
-  };
-  if (inv) channels.value.unshift(newCh);
-  activeChannel.value = newCh;
+  if (inv) {
+    const existingChannel = channels.value.find((c) => c.name === inv.channel);
+    if (existingChannel) {
+      channelsStore.setActive(existingChannel.name);
+    }
+  }
   invitations.value = invitations.value.filter((i) => i.id !== id);
 };
+
 const declineInvite = (id: number) =>
   (invitations.value = invitations.value.filter((i) => i.id !== id));
 
@@ -786,9 +808,14 @@ const filteredChannels = computed(() => {
   return channels.value.filter((ch) => ch.type === channelFilter.value);
 });
 
-const createChannel = () => {
+const invalidNicknamesError = ref('');
+
+const createChannel = async () => {
   const name = newChannelName.value.trim();
   if (!name) return;
+
+  // Clear previous errors
+  invalidNicknamesError.value = '';
 
   const nameExists = channels.value.some((ch) => ch.name.toLowerCase() === name.toLowerCase());
   if (nameExists) {
@@ -796,58 +823,109 @@ const createChannel = () => {
     return;
   }
 
-  const newCh: Channel = {
-    id: channels.value.length + 1,
-    name,
-    type: newChannelType.value,
-    messages: [],
-    members: selectedFriends.value,
-    isAdmin: true,
-  };
+  const myNickname = authStore.user?.nickname; //nech sa neinvituje sam seba
+  if (myNickname && selectedNicknames.value.includes(myNickname)) {
+    invalidNicknamesError.value = 'You cannot invite yourself';
+    return;
+  }
 
-  channels.value.unshift(newCh);
-  activeChannel.value = newCh;
-  newChannelName.value = '';
-  selectedFriends.value = [];
-  newChannelType.value = 'public';
-  showCreateChannelDialog.value = false;
+  // VALIDATE NICKNAMES FIRST
+  if (selectedNicknames.value.length > 0) {
+    try {
+      const response = await api.post('/auth/validate-nicknames', {
+        nicknames: selectedNicknames.value,
+      });
+
+      const invalidNicknames = response.data.invalidNicknames;
+      if (invalidNicknames && invalidNicknames.length > 0) {
+        invalidNicknamesError.value = `These users don't exist: ${invalidNicknames.join(', ')}`;
+        return; // Stop here, don't create channel
+      }
+    } catch (err) {
+      console.error('Failed to validate nicknames:', err);
+      invalidNicknamesError.value = 'Failed to validate nicknames';
+      return;
+    }
+  }
+
+  // NOW CREATE THE CHANNEL (only if nicknames are valid)
+  try {
+    const response = await api.post('/api/channels', {
+      name,
+      type: newChannelType.value,
+      nicknames: selectedNicknames.value,
+    });
+
+    channelsStore.channelsList.unshift(response.data);
+    channelsStore.setActive(response.data.name);
+
+    // Join via WebSocket
+    const socket = channelService.join(response.data.name);
+
+    if (!socket.socket.connected) {
+      await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
+    }
+
+    try {
+      await socket.joinChannel();
+      systemMessage.value = `Joined ${response.data.name}`;
+    } catch (err) {
+      systemMessage.value = 'Failed to join channel';
+      console.error(err);
+    }
+
+    try {
+      const messages = await socket.loadMessages();
+      messages.forEach((m) => channelsStore.newMessage(response.data.name, m));
+    } catch (err) {
+      console.error('Failed to load messages:', err);
+    }
+
+    // Reset form
+    newChannelName.value = '';
+    selectedNicknames.value = [];
+    newChannelType.value = 'public';
+    showCreateChannelDialog.value = false;
+
+    await nextTick();
+    await scrollToBottom();
+  } catch (err: unknown) {
+    console.error('Failed to create channel:', err);
+    alert('Failed to create channel');
+  }
 };
 
 const leaveChannel = () => {
   if (!activeChannel.value) return;
-  channels.value = channels.value.filter((ch) => ch.id !== activeChannel.value!.id);
-  activeChannel.value = null;
+  //call back end to leave channel
 };
 
 const deleteChannel = () => {
   if (!activeChannel.value) return;
-  channels.value = channels.value.filter((ch) => ch.id !== activeChannel.value!.id);
-  activeChannel.value = null;
+  //call back end to leave channel
 };
 
 const getChannelMembers = () => {
-  if (!activeChannel.value?.members) return [];
-  return users.value
-    .filter((f) => activeChannel.value!.members!.includes(f.id))
-    .map((f) => ({ label: f.name, value: f.id }));
+  return channelMembers.value.map((m) => ({
+    label: m.name,
+    value: m.id,
+  }));
 };
 
 const addPeopleToChannel = () => {
   if (!activeChannel.value) return;
-  activeChannel.value.members = Array.from(
-    new Set([...(activeChannel.value.members || []), ...selectedFriends.value]),
-  );
+  // TODO: Call backend API to add people
+  // await api.post(`/api/channels/${activeChannel.value.id}/members`, { userIds: selectedFriends.value })
   showAddPeopleDialog.value = false;
-  selectedFriends.value = [];
+  selectedNicknames.value = [];
 };
 
 const removePeopleFromChannel = () => {
   if (!activeChannel.value) return;
-  activeChannel.value.members = (activeChannel.value.members ?? []).filter(
-    (id) => !selectedFriends.value.includes(id),
-  );
+  // TODO: Call backend API to remove people
+  // await api.delete(`/api/channels/${activeChannel.value.id}/members`, { data: { userIds: selectedFriends.value }})
   showRemovePeopleDialog.value = false;
-  selectedFriends.value = [];
+  selectedNicknames.value = [];
 };
 
 // to bude funkcia ktorou ulozime status usera na server- momentalne len zavrieme dialog
@@ -882,10 +960,11 @@ const handleNotificationClose = () => {
 };
 
 // spustame fixne notifikaciu pri kazdom reloadnuti stranky
-onMounted(() => {
+onMounted(async () => {
+  await authStore.check();
+  await channelsStore.fetchChannels(); // ← Fetch channel metadata
   triggerChatNotification();
-  void fetchChannels();
-  // Nastavenie showChannels na false pre obrazovky < 700px
+
   if (isSmallScreen.value) {
     showChannels.value = false;
     showFriends.value = false;
@@ -912,9 +991,14 @@ watch(
 watch(showCreateChannelDialog, (newVal) => {
   if (!newVal) {
     newChannelName.value = '';
-    selectedFriends.value = [];
+    selectedNicknames.value = []; // ← Reset nicknames
     newChannelType.value = 'public';
+    invalidNicknamesError.value = '';
   }
+});
+
+watch(selectedNicknames, () => {
+  invalidNicknamesError.value = '';
 });
 // aby sa nam input na pridanie friend resetoval po kliknuti na cencel alebo mimo dialogu
 // watch(showAddFriendDialog,(newVal) => {
@@ -944,46 +1028,61 @@ const sendMessage = async () => {
 
   try {
     // === 1. PRÍKAZY (nechaj ako je) ===
-    if (text.startsWith("/")) {
-      const parts = text.slice(1).split(" ");
-      const command = parts[0]?.toLowerCase() ?? "";
-      if (command === "join") {
+    if (text.startsWith('/')) {
+      const parts = text.slice(1).split(' ');
+      const command = parts[0]?.toLowerCase() ?? '';
+      if (command === 'join') {
         const inputName = parts[1]?.trim();
         if (!inputName) {
-          systemMessage.value = "Usage: /join channelName [private]";
+          systemMessage.value = 'Usage: /join channelName [private]';
           return;
         }
-        const type: 'public' | 'private' = parts.slice(2).join(" ").toLowerCase().includes("private")
-          ? "private"
-          : "public";
+        const type: 'public' | 'private' = parts
+          .slice(2)
+          .join(' ')
+          .toLowerCase()
+          .includes('private')
+          ? 'private'
+          : 'public';
 
-        let ch = channels.value.find(c => c.name.toLowerCase() === inputName.toLowerCase());
+        const ch = channels.value.find((c) => c.name.toLowerCase() === inputName.toLowerCase());
+        let channelName: string;
         if (ch) {
+          channelsStore.setActive(ch.name);
+          channelName = ch.name;
           systemMessage.value = `Joined channel "${ch.name}"`;
         } else {
-          ch = {
-            id: channels.value.length + 1,
-            name: inputName,
-            type,
-            messages: [],
-            members: [],
-            isAdmin: true,
-          };
-          channels.value.unshift(ch);
-          systemMessage.value = `Channel "${inputName}" created (${type})`;
-        }
-        activeChannel.value = ch;
+          //call backend to create channel
+          try {
+            const response = await api.post('/api/channels', {
+              name: inputName,
+              type: type,
+              memberIds: [],
+            });
 
-        const socket = channelService.join(ch.name);
+            // Add to store
+            channelsStore.channelsList.unshift(response.data);
+            channelsStore.setActive(response.data.name);
+            channelName = response.data.name;
+
+            systemMessage.value = `Channel "${inputName}" created (${type})`;
+          } catch (err) {
+            systemMessage.value = 'Failed to create channel';
+            console.error(err);
+            return;
+          }
+        }
+
+        const socket = channelService.join(channelName);
         if (!socket.socket.connected) {
-          await new Promise<void>((resolve) => socket.socket.once("connect", resolve));
+          await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
         }
 
         try {
           await socket.joinChannel();
-          systemMessage.value = `Joined ${ch.name}`;
+          systemMessage.value = `Joined ${channelName}`;
         } catch (err) {
-          systemMessage.value = "Failed to join channel";
+          systemMessage.value = 'Failed to join channel';
           console.error(err);
           return;
         }
@@ -991,21 +1090,19 @@ const sendMessage = async () => {
         try {
           const messages = await socket.loadMessages();
           const store = useChannelsStore();
-          messages.forEach(m => store.newMessage(ch.name, m)); // ← POUŽI STORE!
+          messages.forEach((m) => store.newMessage(channelName, m)); // ← POUŽI STORE!
         } catch (err) {
-          systemMessage.value = "You are not a member";
+          systemMessage.value = 'You are not a member';
           console.error(err);
           return;
         }
 
         await nextTick();
         await scrollToBottom();
-      }
-      else if (command === "list") {
+      } else if (command === 'list') {
         showMembersDialog.value = true;
-      }
-      else {
-        systemMessage.value = "Unknown command: " + text;
+      } else {
+        systemMessage.value = 'Unknown command: ' + text;
       }
     }
 
@@ -1032,38 +1129,34 @@ const sendMessage = async () => {
 
       await nextTick();
       await scrollToBottom();
-      
-      // posli na server 
+
+      // posli na server
       await socket.addMessage(text);
 
       // (server pošle správu cez WebSocket)
-      const idx = store.messages[channelName].findIndex(m => m.id === tempId);
+      const idx = store.messages[channelName].findIndex((m) => m.id === tempId);
       if (idx !== -1) {
         store.messages[channelName].splice(idx, 1);
       }
     }
-  }
-  catch (err: unknown) {
-    console.error("Send error:", err);
-    systemMessage.value = err instanceof Error ? err.message : "Failed to send";
-  }
-  finally {
-    newMessage.value = "";
+  } catch (err: unknown) {
+    console.error('Send error:', err);
+    systemMessage.value = err instanceof Error ? err.message : 'Failed to send';
+  } finally {
+    newMessage.value = '';
   }
 };
-
 </script>
 
 <style scoped>
-
-.my-message{
-  background: #FFD700 !important;
+.my-message {
+  background: #ffd700 !important;
   color: black;
   max-width: 70%;
   word-wrap: break-word;
-  word-break: break-word;       
-  overflow-wrap: anywhere;       
-  white-space: pre-wrap;         
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
 }
 
 .other-message {
@@ -1090,7 +1183,7 @@ const sendMessage = async () => {
   overflow-y: auto;
 }
 .mention-highlight {
-  background: #fff8c4 !important;   /* jemne žltá */
+  background: #fff8c4 !important; /* jemne žltá */
   border-left: 4px solid #f59e0b !important;
   font-weight: 600;
 }
