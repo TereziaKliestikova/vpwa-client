@@ -2,6 +2,7 @@ import { defineStore } from "pinia";
 import type { SerializedMessage } from "src/contracts";
 import channelService from "src/services/ChannelService";
 import type { DisplayMessage } from 'src/types/message';
+import { useAuthStore } from "src/stores/auth";
 
 
 // potrebne spravit npm install socket.io-client terezkaaaaaa
@@ -78,24 +79,33 @@ export const useChannelsStore = defineStore("channels", {
         });    
       },
 
-    // Prijatie správy z socketu (real-time)
+    // prijatie spravy zo socketu (real-time)
       newMessage(channel: string, message: SerializedMessage) {
         if (!this.messages[channel]) {
           this.messages[channel] = [];
         }
 
-        // ZABRAŇ DUPLIKÁCII PODĽA ID
+        // zabran duplikatom podla id 
         const exists = this.messages[channel].some(m => m.id === message.id);
         if (exists) {
           console.log("DUPLICATE IGNORED:", message.id, message.content);
           return;
         }
+        // mention detekcia 
+        const authStore = useAuthStore();
+        const myNickname = authStore.user?.nickname || authStore.user?.email.split('@')[0]
+
+        
+        const mentionRegex = new RegExp(`@(${myNickname})\\b`, 'i')  // case-insensitive
+        const isMentioned = mentionRegex.test(message.content)
+
         const user = message.author.nickname;
 
         this.messages[channel].push({
           id: message.id,
           user,
           text: message.content,
+          isMentioned
         } as DisplayMessage);
       },
 
