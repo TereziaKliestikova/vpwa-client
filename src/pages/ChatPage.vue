@@ -129,7 +129,14 @@
                       <div class="text-caption text-grey-6 q-mb-xs">
                         {{ msg.user }}
                       </div>
-                      <div class="other-message q-pa-sm rounded-borders">
+
+                      <div class="q-pa-sm rounded-borders transition-all" :class="['other-message',
+                          { 
+                            'mention-highlight': msg.isMentioned,
+                            'mention-pulse': msg.isMentioned 
+                          }
+                        ]"
+                      >
                         {{ msg.text }}
                       </div>
                     </div>
@@ -1025,10 +1032,11 @@ const sendMessage = async () => {
 
       await nextTick();
       await scrollToBottom();
-      // 2. POŠLI NA SERVER
+      
+      // posli na server 
       await socket.addMessage(text);
 
-      // 3. ODSTRÁŇ DOČASNÚ (server pošle správu cez WebSocket)
+      // (server pošle správu cez WebSocket)
       const idx = store.messages[channelName].findIndex(m => m.id === tempId);
       if (idx !== -1) {
         store.messages[channelName].splice(idx, 1);
@@ -1044,62 +1052,30 @@ const sendMessage = async () => {
   }
 };
 
-// const sendMessage = async () => {
-//   const text = newMessage.value.trim();
-//   if (!text) return;
-
-//   if (!activeChannel.value) {
-//     systemMessage.value = 'You are outside of channel';
-//     return;
-//   }
-
-//   const channelName = activeChannel.value.name;
-//   const manager = channelService.in(channelName);
-
-//   if (!manager) {
-//     systemMessage.value = 'You are not joined in this channel';
-//     return;
-//   }
-
-//   try {
-//     // posielame správu cez ChannelService
-//     const newMsg = await manager.addMessage(text);
-
-//     // ak máme activeChannel a messages, pridáme novú správu
-//     if (newMsg && activeChannel.value.messages) {
-//       activeChannel.value.messages.push({
-//         id: newMsg.id,
-//         user: newMsg.author.nickname,   // meno autora
-//         text: newMsg.content,       // obsah správy
-//       });
-//     }
-
-//     await nextTick();
-//     await scrollToBottom();
-//   } catch (err) {
-//     console.error('Failed to send message:', err);
-//     systemMessage.value = 'Failed to send message';
-//   }
-
-//   newMessage.value = '';
-// };
-
 </script>
 
 <style scoped>
 
-.my-message {
+.my-message{
   background: #FFD700 !important;
   color: black;
   max-width: 70%;
   word-wrap: break-word;
+  word-break: break-word;       
+  overflow-wrap: anywhere;       
+  white-space: pre-wrap;         
 }
+
 .other-message {
   background: #f5f5f5;
   color: black;
-  max-width: 70%;
-  word-wrap: break-word;
 }
+
+.q-pa-sm.rounded-borders {
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
 .scroll {
   overflow-y: auto;
   height: 100%;
@@ -1112,11 +1088,30 @@ const sendMessage = async () => {
   max-height: 150px;
   overflow-y: auto;
 }
-.mention-message {
-  border-radius: 4px;
-  width: 100%;
-  background-color: #fdf3bc;
+.mention-highlight {
+  background: #fff8c4 !important;   /* jemne žltá */
+  border-left: 4px solid #f59e0b !important;
+  font-weight: 600;
 }
+
+.mention-pulse {
+  animation: mentionPulse 2s infinite;
+}
+@keyframes mentionPulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.7);
+  }
+  70% {
+    box-shadow: 0 0 0 10px rgba(245, 158, 11, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+}
+.transition-all {
+  transition: all 0.3s ease;
+}
+
 .status-indicator {
   width: 12px;
   height: 12px;
