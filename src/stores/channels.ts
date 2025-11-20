@@ -92,6 +92,16 @@ export const useChannelsStore = defineStore('channels', {
       }
     },
 
+    async fetchAllChannels() {
+      try {
+        const response = await api.get('/api/channels/all');
+        return response.data; // Return all channels, don't store them
+      } catch (err) {
+        console.error('Failed to fetch all channels:', err);
+        return [];
+      }
+    },
+
     // Odpojenie z channel
     leave(channel: string | null) {
       const leaving = channel ? [channel] : this.joinedChannels;

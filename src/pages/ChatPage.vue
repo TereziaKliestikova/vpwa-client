@@ -1035,8 +1035,66 @@ const sendMessage = async () => {
         const inputName = parts[1]?.trim();
         if (!inputName) {
           systemMessage.value = 'Usage: /join channelName [private]';
+          newMessage.value = '';
           return;
         }
+
+        // fetch ALL channels from DB
+        const allChannels = await channelsStore.fetchAllChannels();
+
+        // check if channel exists in DB
+        const existingChannel = allChannels.find(
+          (c: Channel) => c.name.toLowerCase() === inputName.toLowerCase(),
+        );
+
+        if (existingChannel) {
+          // channel exists - join it
+          const socket = channelService.join(existingChannel.name);
+          if (!socket.socket.connected) {
+            await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
+          }
+
+          try {
+            await socket.joinChannel();
+            systemMessage.value = `Joined ${existingChannel.name}`;
+          } catch (err) {
+            systemMessage.value = 'Failed to join channel';
+            console.error(err);
+            newMessage.value = '';
+            return;
+          }
+
+          try {
+            const messages = await socket.loadMessages();
+            messages.forEach((m) => channelsStore.newMessage(existingChannel.name, m));
+
+            // refresh channel list usera, teraz by tam mal byt aj ten novy
+            await channelsStore.fetchChannels();
+
+            // bude topovany
+            const channelIndex = channelsStore.channelsList.findIndex(
+              (c) => c.name === existingChannel.name,
+            );
+            if (channelIndex > 0) {
+              //dame ho na prve miesto listu
+              const [channel] = channelsStore.channelsList.splice(channelIndex, 1);
+              channelsStore.channelsList.unshift(channel);
+            }
+
+            // dame ho na active
+            channelsStore.setActive(existingChannel.name);
+          } catch (err) {
+            systemMessage.value = 'You are not a member';
+            console.error(err);
+          }
+
+          await nextTick();
+          await scrollToBottom();
+          newMessage.value = '';
+          return;
+        }
+
+        // channel doesn't exist - create it
         const type: 'public' | 'private' = parts
           .slice(2)
           .join(' ')
@@ -1045,65 +1103,61 @@ const sendMessage = async () => {
           ? 'private'
           : 'public';
 
-        //a tu nastava ta chyba, lebo ked ch existuje tak to pojde aj tak do ifu kde neexistuje, a bude sa ho snazit vytvorit ale ho nevytvori lebo uz je v DB
-        const ch = channels.value.find((c) => c.name.toLowerCase() === inputName.toLowerCase());
-        let channelName: string;
-        if (ch) {
-          channelsStore.setActive(ch.name);
-          channelName = ch.name;
-          systemMessage.value = `Joined channel "${ch.name}"`;
-        } else {
-          //call backend to create channel
+        try {
+          const response = await api.post('/api/channels', {
+            name: inputName,
+            type: type,
+            memberIds: [],
+          });
+
+          // pridaj do store
+          channelsStore.channelsList.unshift(response.data);
+          channelsStore.setActive(response.data.name);
+
+          systemMessage.value = `Channel "${inputName}" created (${type})`;
+
+          // pripoj sa cez websocket
+          const socket = channelService.join(response.data.name);
+          if (!socket.socket.connected) {
+            await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
+          }
+
           try {
-            const response = await api.post('/api/channels', {
-              name: inputName,
-              type: type,
-              memberIds: [],
-            });
-
-            // Add to store
-            channelsStore.channelsList.unshift(response.data);
-            channelsStore.setActive(response.data.name);
-            channelName = response.data.name;
-
-            systemMessage.value = `Channel "${inputName}" created (${type})`;
+            await socket.joinChannel();
           } catch (err) {
-            systemMessage.value = 'Failed to create channel';
+            systemMessage.value = 'Failed to join channel';
             console.error(err);
+            newMessage.value = '';
             return;
           }
-        }
 
-        const socket = channelService.join(channelName);
-        if (!socket.socket.connected) {
-          await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
-        }
+          // load messages
+          try {
+            const messages = await socket.loadMessages();
+            messages.forEach((m) => channelsStore.newMessage(response.data.name, m));
+          } catch (err) {
+            systemMessage.value = 'You are not a member';
+            console.error(err);
+          }
 
-        try {
-          await socket.joinChannel();
-          systemMessage.value = `Joined ${channelName}`;
-        } catch (err) {
-          systemMessage.value = 'Failed to join channel';
-          console.error(err);
+          await nextTick();
+          await scrollToBottom();
+          newMessage.value = '';
+          return;
+        } catch (err: unknown) {
+          console.error('Failed to create channel:', err);
+          systemMessage.value = 'Failed to create channel';
+          newMessage.value = '';
           return;
         }
-
-        try {
-          const messages = await socket.loadMessages();
-          const store = useChannelsStore();
-          messages.forEach((m) => store.newMessage(channelName, m)); // ← POUŽI STORE!
-        } catch (err) {
-          systemMessage.value = 'You are not a member';
-          console.error(err);
-          return;
-        }
-
-        await nextTick();
-        await scrollToBottom();
       } else if (command === 'list') {
         showMembersDialog.value = true;
+        newMessage.value = '';
+        return;
       } else {
         systemMessage.value = 'Unknown command: ' + text;
+        newMessage.value = '';
+        return;
       }
     }
 
@@ -1321,3 +1375,242 @@ const sendMessage = async () => {
   color: #666;
 }
 </style>
+
+<!-- const sendMessage = async () => {
+  const text = newMessage.value.trim();
+  if (!text || !activeChannel.value) return;
+
+  const channelName = activeChannel.value.name;
+  let socket = channelService.in(channelName);
+  if (!socket) socket = channelService.join(channelName);
+
+  try {
+    // === 1. PRÍKAZY (nechaj ako je) ===
+    if (text.startsWith('/')) {
+      const parts = text.slice(1).split(' ');
+      const command = parts[0]?.toLowerCase() ?? '';
+      if (command === 'join') {
+        const inputName = parts[1]?.trim();
+        if (!inputName) {
+          systemMessage.value = 'Usage: /join channelName [private]';
+          newMessage.value = '';
+          return;
+        }
+
+        // Debug: Log all channels
+        console.log(
+          '🔍 DEBUG: All channels:',
+          channels.value.map((c) => c.name),
+        );
+        console.log('🔍 DEBUG: Looking for channel:', inputName);
+
+        // Check if channel already exists locally
+        const existingChannel = channels.value.find(
+          (c) => c.name.toLowerCase() === inputName.toLowerCase(),
+        );
+
+        console.log('🔍 DEBUG: Found existing channel?', existingChannel ? 'YES' : 'NO');
+        if (existingChannel) {
+          console.log('🔍 DEBUG: Existing channel data:', existingChannel);
+        }
+
+        if (existingChannel) {
+          // Channel exists - just join it (don't create!)
+          console.log('✅ Channel exists - joining without creating');
+          channelsStore.setActive(existingChannel.name);
+
+          const socket = channelService.join(existingChannel.name);
+          if (!socket.socket.connected) {
+            await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
+          }
+
+          try {
+            await socket.joinChannel();
+            systemMessage.value = `Joined ${existingChannel.name}`;
+          } catch (err) {
+            systemMessage.value = 'Failed to join channel';
+            console.error(err);
+            newMessage.value = '';
+            return;
+          }
+
+          try {
+            const messages = await socket.loadMessages();
+            messages.forEach((m) => channelsStore.newMessage(existingChannel.name, m));
+          } catch (err) {
+            systemMessage.value = 'You are not a member';
+            console.error(err);
+          }
+
+          await nextTick();
+          await scrollToBottom();
+          newMessage.value = '';
+          return;
+        }
+
+        // Channel doesn't exist - create it
+        console.log('❌ Channel does NOT exist - creating new one');
+        const type: 'public' | 'private' = parts
+          .slice(2)
+          .join(' ')
+          .toLowerCase()
+          .includes('private')
+          ? 'private'
+          : 'public';
+
+        try {
+          console.log('📡 Calling API to create channel:', inputName, 'type:', type);
+          const response = await api.post('/api/channels', {
+            name: inputName,
+            type: type,
+            memberIds: [],
+          });
+
+          // Add to store
+          channelsStore.channelsList.unshift(response.data);
+          channelsStore.setActive(response.data.name);
+
+          systemMessage.value = `Channel "${inputName}" created (${type})`;
+
+          // Now join via WebSocket
+          const socket = channelService.join(response.data.name);
+          if (!socket.socket.connected) {
+            await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
+          }
+
+          try {
+            await socket.joinChannel();
+          } catch (err) {
+            systemMessage.value = 'Failed to join channel';
+            console.error(err);
+            newMessage.value = '';
+            return;
+          }
+
+          // Load messages
+          try {
+            const messages = await socket.loadMessages();
+            messages.forEach((m) => channelsStore.newMessage(response.data.name, m));
+          } catch (err) {
+            systemMessage.value = 'You are not a member';
+            console.error(err);
+          }
+
+          await nextTick();
+          await scrollToBottom();
+          newMessage.value = '';
+          return;
+        } catch (err: unknown) {
+          console.error('❌ API ERROR creating channel:', err);
+
+          const axiosError = err as {
+            response?: { data?: { message?: string; code?: string }; status?: number };
+          };
+          console.error('❌ Error response:', axiosError.response?.data);
+          console.error('❌ Error status:', axiosError.response?.status);
+
+          // Check if channel already exists (409 Conflict OR 500 with UNIQUE constraint error)
+          const isUniqueConstraintError =
+            axiosError.response?.data?.code === 'SQLITE_CONSTRAINT' ||
+            axiosError.response?.data?.message?.includes('UNIQUE constraint failed');
+          const channelExists = axiosError.response?.status === 409 || isUniqueConstraintError;
+
+          if (channelExists) {
+            console.log('⚠️ Channel already exists, trying to join it instead');
+            systemMessage.value = `Joining existing channel "${inputName}"`;
+
+            // Try to join via WebSocket
+            const socket = channelService.join(inputName);
+            if (!socket.socket.connected) {
+              await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
+            }
+
+            try {
+              await socket.joinChannel();
+              systemMessage.value = `Joined ${inputName}`;
+
+              // Load messages
+              try {
+                const messages = await socket.loadMessages();
+                messages.forEach((m) => channelsStore.newMessage(inputName, m));
+
+                // Add channel to local list if not already there
+                if (!channels.value.find((c) => c.name === inputName)) {
+                  // Fetch fresh channel list from server
+                  await channelsStore.fetchChannels();
+                }
+
+                // Set as active
+                channelsStore.setActive(inputName);
+
+                await nextTick();
+                await scrollToBottom();
+              } catch (loadErr) {
+                systemMessage.value = 'You are not a member of this channel';
+                console.error(loadErr);
+              }
+            } catch (joinErr) {
+              systemMessage.value = 'Failed to join channel';
+              console.error(joinErr);
+            }
+
+            newMessage.value = '';
+            return;
+          }
+
+          systemMessage.value = axiosError.response?.data?.message || 'Failed to create channel';
+          console.error(err);
+          newMessage.value = '';
+          return;
+        }
+      } else if (command === 'list') {
+        showMembersDialog.value = true;
+        newMessage.value = '';
+        return;
+      } else {
+        systemMessage.value = 'Unknown command: ' + text;
+        newMessage.value = '';
+        return;
+      }
+    }
+
+    // === 2. NORMÁLNA SPRÁVA ===
+    else {
+      const myNickname = authStore.user?.nickname;
+
+      // 1. OPTIMISTICKY PRIDAJ (žltá bublina hneď!)
+      const tempId = Date.now();
+      const store = useChannelsStore();
+      store.newMessage(channelName, {
+        id: tempId,
+        createdBy: authStore.user!.id,
+        content: text,
+        channelId: 0, // dočasné
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        author: {
+          id: authStore.user!.id,
+          email: authStore.user!.email,
+          nickname: myNickname,
+        },
+      } as SerializedMessage);
+
+      await nextTick();
+      await scrollToBottom();
+
+      // posli na server
+      await socket.addMessage(text);
+
+      // (server pošle správu cez WebSocket)
+      const idx = store.messages[channelName].findIndex((m) => m.id === tempId);
+      if (idx !== -1) {
+        store.messages[channelName].splice(idx, 1);
+      }
+    }
+  } catch (err: unknown) {
+    console.error('Send error:', err);
+    systemMessage.value = err instanceof Error ? err.message : 'Failed to send';
+  } finally {
+    newMessage.value = '';
+  }
+}; -->
