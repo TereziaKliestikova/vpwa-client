@@ -1,10 +1,10 @@
-import { SocketManager } from "./SocketManager";
-import { useChannelsStore } from "src/stores/channels";
-import type { SerializedMessage } from "src/contracts";
+import { SocketManager } from './SocketManager';
+import { useChannelsStore } from 'src/stores/channels';
+import type { SerializedMessage } from 'src/contracts';
 
 export class ChannelSocketManager extends SocketManager {
-
-private subscribed = false;
+  private subscribed = false;
+  public isJoined = false;
 
   // VOLAJ TOTO PRI PRVOM JOIN!
   public join(): this {
@@ -15,19 +15,19 @@ private subscribed = false;
 
   public subscribe(): void {
     if (this.subscribed) {
-      console.log("Already subscribed to:", this.namespace);
+      console.log('Already subscribed to:', this.namespace);
       return;
     }
 
     const channelStore = useChannelsStore();
-    const channel = this.namespace.split("/").pop() as string;
+    const channel = this.namespace.split('/').pop() as string;
 
-    this.socket.on("connect", () => {
-      console.log("Socket CONNECTED:", this.namespace);
+    this.socket.on('connect', () => {
+      console.log('Socket CONNECTED:', this.namespace);
     });
 
-    this.socket.on("connect_error", (err) => {
-      console.error("CONNECT ERROR:", err.message, err);
+    this.socket.on('connect_error', (err) => {
+      console.error('CONNECT ERROR:', err.message, err);
     });
 
     this.socket.onAny((event, ...args) => {
@@ -35,29 +35,36 @@ private subscribed = false;
     });
 
     // ZABRAŇ DUPLIKÁCII!
-    this.socket.off("message");
-    this.socket.on("message", (msg: SerializedMessage) => {
-      console.log("Received message:", msg);
+    this.socket.off('message');
+    this.socket.on('message', (msg: SerializedMessage) => {
+      console.log('Received message:', msg);
       channelStore.newMessage(channel, msg);
     });
 
     this.subscribed = true;
-    console.log("Subscribed to events for:", this.namespace);
+    console.log('Subscribed to events for:', this.namespace);
   }
-  // NOVÝ EVENT: joinChannel
+
   public async joinChannel(): Promise<unknown> {
-    console.log("Sending joinChannel to:", this.namespace);
-    return this.emitAsync("joinChannel");
+    if (this.isJoined) {
+      console.log('Already joined channel:', this.namespace);
+      return { success: true }; // ← vráť niečo, aby sa nezaseklo
+    }
+
+    console.log('Sending joinChannel to:', this.namespace);
+    const result = await this.emitAsync('joinChannel');
+    this.isJoined = true; // ← označ, že si už v kanáli
+    return result;
   }
 
   public async loadMessages(): Promise<SerializedMessage[]> {
-    console.log("Loading messages from:", this.namespace);
-    return this.emitAsync("loadMessages");
+    console.log('Loading messages from:', this.namespace);
+    return this.emitAsync('loadMessages');
   }
 
   public async addMessage(content: string): Promise<SerializedMessage> {
-    console.log("Sending addMessage:", content);
-    return this.emitAsync("addMessage", content);
+    console.log('Sending addMessage:', content);
+    return this.emitAsync('addMessage', content);
   }
 }
 
@@ -74,9 +81,9 @@ class ChannelService {
 
     // Ak už existuje (napr. "general" alebo "General"), vráť ho
     if (this.channels.has(normalized)) {
-        const socket = this.channels.get(normalized)!;
-        socket.join(); // ← už je subscribed, nič sa nestane
-        return socket;
+      const socket = this.channels.get(normalized)!;
+      socket.join(); // ← už je subscribed, nič sa nestane
+      return socket;
     }
 
     // Použi PÔVODNÝ názov do namespace (case-sensitive!)

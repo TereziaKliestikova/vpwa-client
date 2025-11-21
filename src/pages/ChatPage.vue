@@ -448,6 +448,24 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="showLeaveConfirm">
+      <q-card style="min-width: 300px">
+        <q-card-section class="text-center">
+          Are you sure you want to leave channel "{{ channelToLeave?.name }}"?
+          <div
+            v-if="(channelToLeave?.members?.length || 0) <= 1"
+            class="text-caption text-warning q-mt-sm"
+          >
+            <q-icon name="warning" /> You are the last member. This channel will be deleted.
+          </div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="black" v-close-popup />
+          <q-btn color="primary" label="Leave" @click="confirmLeaveChannel" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -733,7 +751,7 @@ const onLoadMore = async (index: number, done: (stop?: boolean) => void) => {
   }
 
   isLoadingMore.value = true;
-  await new Promise((resolve) => setTimeout(resolve, 800)); // simulácia načítania
+  await new Promise((resolve) => setTimeout(resolve, 1200)); // simulácia načítania
   loadedMessagesCount.value += batchSize;
   isLoadingMore.value = false;
   done();
@@ -750,21 +768,25 @@ const selectChannel = async (ch: Channel) => {
   channelsStore.setActive(ch.name);
   const socket = channelService.join(ch.name);
 
-  await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
-
-  try {
-    await socket.joinChannel();
-  } catch {
-    systemMessage.value = 'Failed to join';
+  if (socket.isJoined) {
+    if (!channelsStore.messages[ch.name]?.length) {
+      const messages = await socket.loadMessages();
+      messages.forEach((m) => channelsStore.newMessage(ch.name, m));
+    }
+    await nextTick();
+    await scrollToBottom();
+    if (isSmallScreen.value) showChannels.value = false;
     return;
   }
 
+  // inak join + load messages
   try {
+    await socket.joinChannel(); // ← tu sa pripojíš len raz!
     const messages = await socket.loadMessages();
-    const store = useChannelsStore();
-    messages.forEach((m) => store.newMessage(ch.name, m));
-  } catch {
-    systemMessage.value = 'You are not a member';
+    messages.forEach((m) => channelsStore.newMessage(ch.name, m));
+  } catch (err) {
+    systemMessage.value = 'Failed to join channel';
+    console.error(err);
     return;
   }
 
@@ -908,9 +930,56 @@ const createChannel = async () => {
   }
 };
 
+const showLeaveConfirm = ref(false);
+const channelToLeave = ref<Channel | null>(null);
+
 const leaveChannel = () => {
   if (!activeChannel.value) return;
-  //call back end to leave channel
+
+  // Store the channel and show confirmation
+  channelToLeave.value = activeChannel.value;
+  showLeaveConfirm.value = true;
+};
+
+const confirmLeaveChannel = async () => {
+  if (!channelToLeave.value) return;
+
+  const channelName = channelToLeave.value.name;
+  const channelId = channelToLeave.value.id;
+  const memberCount = channelToLeave.value.members?.length || 0;
+
+  try {
+    // Call backend to leave channel
+    await api.post(`/api/channels/${channelId}/leave`);
+
+    // Remove from local store
+    const index = channelsStore.channelsList.findIndex((c) => c.id === channelId);
+    if (index !== -1) {
+      channelsStore.channelsList.splice(index, 1);
+    }
+
+    // Clear active channel
+    channelsStore.setActive(channelsStore.channelsList[0]?.name || '');
+
+    // Leave WebSocket room
+    const socket = channelService.in(channelName);
+    if (socket) {
+      socket.socket.disconnect();
+    }
+
+    // Check if user was the last member
+    if (memberCount <= 1) {
+      systemMessage.value = `You were the last member. Channel "${channelName}" has been deleted.`;
+    } else {
+      systemMessage.value = `Left channel "${channelName}"`;
+    }
+  } catch (error) {
+    console.error('Failed to leave channel:', error);
+    systemMessage.value = 'Failed to leave channel';
+  } finally {
+    showLeaveConfirm.value = false;
+    channelToLeave.value = null;
+  }
 };
 
 //deleting a channel
@@ -1016,28 +1085,54 @@ const handleNotificationClose = () => {
 
 // spustame fixne notifikaciu pri kazdom reloadnuti stranky
 onMounted(async () => {
-  await authStore.check();
-  await channelsStore.fetchChannels(); // ← Fetch channel metadata
-  triggerChatNotification();
+  window.addEventListener('unhandledrejection', (event) => {
+    console.error('🔴🔴🔴 UNHANDLED REJECTION 🔴🔴🔴');
+    console.error('Reason:', event.reason);
+    console.error('Stack:', event.reason?.stack);
+    console.error('Promise:', event.promise);
+  });
 
-  if (isSmallScreen.value) {
-    showChannels.value = false;
-    showFriends.value = false;
+  try {
+    await authStore.check();
+    await channelsStore.fetchChannels();
+
+    // Ak máš uložený posledný kanál (napr. v localStorage), obnov ho
+    const lastChannelName = localStorage.getItem('lastActiveChannel');
+    console.log('Last active channel from storage:', lastChannelName);
+    const lastChannelExists =
+      lastChannelName && channelsStore.channelsList.some((ch) => ch.name === lastChannelName);
+
+    if (lastChannelExists) {
+      channelsStore.setActive(lastChannelName); // ← toto je kľúčové!
+    } else if (channelsStore.channelsList.length > 0) {
+      // Ak nemá uložený, alebo bol zmazaný → choď na prvý
+      channelsStore.setActive(channelsStore.channelsList[0].name);
+    }
+
+    // znova sa pripoj do kanala, toto uz nahra aj spravy:
+    await channelsStore.rejoinActiveChannel();
+  } catch (err) {
+    console.error('Init failed:', err);
   }
+
+  triggerChatNotification();
 });
 
 // Po zmene kanála
 watch(
   activeChannel,
-  async () => {
-    loadedMessagesCount.value = 20; // reset načítania
+  async (newChannel) => {
+    if (!newChannel) return;
+
+    // Ulož posledný kanál
+    localStorage.setItem('lastActiveChannel', newChannel.name);
+
+    // Reset scroll a načítanie správ TOTO NEFUNGUJE
     isLoadingMore.value = false;
+    loadedMessagesCount.value = 20;
+
     await nextTick();
     await scrollToBottom();
-    // Ak máš málo správ, môžeš rovno načítať viac
-    if (currentMessages.value.length > 20) {
-      // voliteľne: spusti infinite scroll manuálne
-    }
   },
   { immediate: true },
 );
@@ -1075,17 +1170,15 @@ const isMyMessage = (msg: DisplayMessage) => {
 
 const sendMessage = async () => {
   const text = newMessage.value.trim();
-  if (!text || !activeChannel.value) return;
-
-  const channelName = activeChannel.value.name;
-  let socket = channelService.in(channelName);
-  if (!socket) socket = channelService.join(channelName);
+  if (!text) return;
 
   try {
-    // === 1. PRÍKAZY (nechaj ako je) ===
+    // ────────────────────────────── COMMANDS ──────────────────────────────
     if (text.startsWith('/')) {
       const parts = text.slice(1).split(' ');
       const command = parts[0]?.toLowerCase() ?? '';
+
+      // 1. /join → allowed even when no channel exists
       if (command === 'join') {
         const inputName = parts[1]?.trim();
         if (!inputName) {
@@ -1108,7 +1201,6 @@ const sendMessage = async () => {
           if (!socket.socket.connected) {
             await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
           }
-
           try {
             await socket.joinChannel();
             systemMessage.value = `Joined ${existingChannel.name}`;
@@ -1123,7 +1215,7 @@ const sendMessage = async () => {
             const messages = await socket.loadMessages();
             messages.forEach((m) => channelsStore.newMessage(existingChannel.name, m));
 
-            // refresh channel list usera, teraz by tam mal byt aj ten novy
+            // refresh channel list usera
             await channelsStore.fetchChannels();
 
             // bude topovany
@@ -1131,7 +1223,6 @@ const sendMessage = async () => {
               (c) => c.name === existingChannel.name,
             );
             if (channelIndex > 0) {
-              //dame ho na prve miesto listu
               const [channel] = channelsStore.channelsList.splice(channelIndex, 1);
               channelsStore.channelsList.unshift(channel);
             }
@@ -1168,7 +1259,6 @@ const sendMessage = async () => {
           // pridaj do store
           channelsStore.channelsList.unshift(response.data);
           channelsStore.setActive(response.data.name);
-
           systemMessage.value = `Channel "${inputName}" created (${type})`;
 
           // pripoj sa cez websocket
@@ -1176,7 +1266,6 @@ const sendMessage = async () => {
           if (!socket.socket.connected) {
             await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
           }
-
           try {
             await socket.joinChannel();
           } catch (err) {
@@ -1205,7 +1294,15 @@ const sendMessage = async () => {
           newMessage.value = '';
           return;
         }
-      } else if (command === 'list') {
+      }
+
+      if (channelsStore.channelsList.length === 0) {
+        systemMessage.value = 'You need to join or create a channel first. Try: /join General';
+        newMessage.value = '';
+        return;
+      }
+
+      if (command === 'list') {
         showMembersDialog.value = true;
         newMessage.value = '';
         return;
@@ -1216,42 +1313,62 @@ const sendMessage = async () => {
       }
     }
 
-    // === 2. NORMÁLNA SPRÁVA ===
-    else {
-      const myNickname = authStore.user?.nickname;
-
-      // 1. OPTIMISTICKY PRIDAJ (žltá bublina hneď!)
-      const tempId = Date.now();
-      const store = useChannelsStore();
-      store.newMessage(channelName, {
-        id: tempId,
-        createdBy: authStore.user!.id,
-        content: text,
-        channelId: 0, // dočasné
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
-        author: {
-          id: authStore.user!.id,
-          email: authStore.user!.email,
-          nickname: myNickname,
-        },
-      } as SerializedMessage);
-
-      await nextTick();
-      await scrollToBottom();
-
-      // posli na server
-      await socket.addMessage(text);
-
-      // (server pošle správu cez WebSocket)
-      const idx = store.messages[channelName].findIndex((m) => m.id === tempId);
-      if (idx !== -1) {
-        store.messages[channelName].splice(idx, 1);
-      }
+    // ────────────────────────────── NORMAL MESSAGES ──────────────────────────────
+    // First: if user has never joined any channel at all
+    if (channelsStore.channelsList.length === 0) {
+      systemMessage.value = 'You need to join or create a channel first. Try: /join General';
+      newMessage.value = '';
+      return;
     }
-  } catch (err: unknown) {
+
+    // Second: if user has channels but none selected
+    if (!activeChannel.value) {
+      systemMessage.value = 'Please select a channel first (or type /join <name>)';
+      newMessage.value = '';
+      return;
+    }
+
+    // At this point we KNOW we have an active channel → safe to use
+    const channelName = activeChannel.value.name;
+    const socket = channelService.in(channelName) ?? channelService.join(channelName);
+
+    const tempId = Date.now();
+    const store = useChannelsStore();
+
+    // Optimistic UI
+    store.newMessage(channelName, {
+      id: tempId,
+      createdBy: authStore.user!.id,
+      content: text,
+      channelId: 0,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      author: {
+        id: authStore.user!.id,
+        email: authStore.user!.email,
+        nickname: authStore.user?.nickname,
+      },
+    } as SerializedMessage);
+
+    await nextTick();
+    await scrollToBottom();
+
+    try {
+      await Promise.resolve(socket.addMessage(text));
+
+      // Remove temp message (server will push the real one)
+      const idx = store.messages[channelName].findIndex((m) => m.id === tempId);
+      if (idx !== -1) store.messages[channelName].splice(idx, 1);
+    } catch (err) {
+      console.error('Failed to send message via socket:', err);
+      // Rollback optimistic message
+      const idx = store.messages[channelName].findIndex((m) => m.id === tempId);
+      if (idx !== -1) store.messages[channelName].splice(idx, 1);
+      throw err;
+    }
+  } catch (err) {
     console.error('Send error:', err);
-    systemMessage.value = err instanceof Error ? err.message : 'Failed to send';
+    systemMessage.value = 'Failed to send message';
   } finally {
     newMessage.value = '';
   }
