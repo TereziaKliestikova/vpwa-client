@@ -81,9 +81,9 @@ export const useChannelsStore = defineStore('channels', {
         this.channelsList = response.data;
 
         // Set first channel as active if none selected
-        if (!this.active && this.channelsList.length > 0) {
-          this.active = this.channelsList[0].name;
-        }
+        // if (!this.active && this.channelsList.length > 0) {
+        //   this.active = this.channelsList[0].name;
+        // }
       } catch (err) {
         this.error = err as Error;
         console.error('Failed to fetch channels:', err);
@@ -160,6 +160,28 @@ export const useChannelsStore = defineStore('channels', {
 
     setActive(channel: string) {
       this.active = channel;
+    },
+
+    // stores/channels.ts
+    async rejoinActiveChannel() {
+      const active = this.activeChannel;
+      if (!active) return;
+
+      const socket = channelService.join(active.name);
+      if (!socket.socket.connected) {
+        await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
+      }
+
+      try {
+        await socket.joinChannel();
+
+        if (!this.messages[active.name] || this.messages[active.name].length === 0) {
+          const messages = await socket.loadMessages();
+          messages.forEach((m) => this.newMessage(active.name, m));
+        }
+      } catch (err) {
+        console.error('Auto-rejoin failed:', err);
+      }
     },
   },
 });
