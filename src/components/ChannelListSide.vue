@@ -53,7 +53,7 @@
 
   <!-- Channels panel pre veľké obrazovky -->
   <div v-else-if="showChannels" class="col-auto bg-yellow-1 q-pa-sm" style="width: 250px">
-    <q-list bordered>
+    <q-list bordered class="channels-list-scrollable">
       <q-item-label header>
         <div class="row items-center">
           <span>Channels</span>
@@ -197,6 +197,10 @@ watch(
   position: fixed;
   height: 100vh;
   z-index: 1000;
+  overflow-y: auto;
+}
+.channels-list-scrollable {
+  max-height: calc(100vh - 32px); /* Full height minus padding */
   overflow-y: auto;
 }
 </style>
