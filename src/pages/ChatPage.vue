@@ -435,6 +435,19 @@
         </q-card-actions>
       </q-card>
     </q-dialog>
+
+    <q-dialog v-model="showDeleteConfirm">
+      <q-card style="min-width: 300px">
+        <q-card-section class="text-center">
+          Are you sure you want to delete channel "{{ channelToDelete?.name }}"?
+          <div class="text-caption text-grey-7 q-mt-sm">This action cannot be undone.</div>
+        </q-card-section>
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="black" v-close-popup />
+          <q-btn color="primary" label="Delete" @click="confirmDeleteChannel" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
   </q-page>
 </template>
 
@@ -900,9 +913,51 @@ const leaveChannel = () => {
   //call back end to leave channel
 };
 
+//deleting a channel
+const showDeleteConfirm = ref(false);
+const channelToDelete = ref<Channel | null>(null);
+
 const deleteChannel = () => {
   if (!activeChannel.value) return;
-  //call back end to leave channel
+
+  // Store the channel and show confirmation
+  channelToDelete.value = activeChannel.value;
+  showDeleteConfirm.value = true;
+};
+
+const confirmDeleteChannel = async () => {
+  if (!channelToDelete.value) return;
+
+  const channelName = channelToDelete.value.name;
+  const channelId = channelToDelete.value.id;
+
+  try {
+    // Call backend to delete channel
+    await api.delete(`/api/channels/${channelId}`);
+
+    // Remove from local store
+    const index = channelsStore.channelsList.findIndex((c) => c.id === channelId);
+    if (index !== -1) {
+      channelsStore.channelsList.splice(index, 1);
+    }
+
+    // Clear active channel
+    channelsStore.setActive(channelsStore.channelsList[0]?.name || '');
+
+    // Leave WebSocket room
+    const socket = channelService.in(channelName);
+    if (socket) {
+      socket.socket.disconnect();
+    }
+
+    systemMessage.value = `Channel "${channelName}" deleted successfully`;
+  } catch (error) {
+    console.error('Failed to delete channel:', error);
+    systemMessage.value = 'Failed to delete channel';
+  } finally {
+    showDeleteConfirm.value = false;
+    channelToDelete.value = null;
+  }
 };
 
 const getChannelMembers = () => {
