@@ -1,15 +1,23 @@
 import { SocketManager } from './SocketManager';
 import { useChannelsStore } from 'src/stores/channels';
 import type { SerializedMessage } from 'src/contracts';
+import type { BootParams } from './SocketManager';
 
 export class ChannelSocketManager extends SocketManager {
   private subscribed = false;
   public isJoined = false;
 
   // VOLAJ TOTO PRI PRVOM JOIN!
-  public join(): this {
+  public join(params?: BootParams): this {
+    if (params) {
+      this.subscribe(); // zavolá subscribe s Quasar boot params
+    } else {
+      if (!this.subscribed) {
+        console.warn('ChannelSocketManager join called without boot params!');
+      }
+    }
+
     this.socket.connect();
-    this.subscribe(); // ← len raz!
     return this;
   }
 
@@ -40,9 +48,61 @@ export class ChannelSocketManager extends SocketManager {
       console.log('Received message:', msg);
       channelStore.newMessage(channel, msg);
     });
+    // Add BEFORE  this.subscribed = true;
+    this.socket.off('members:update');
+    this.socket.on('members:update', ({ channelId, members }) => {
+      console.log('LIVE MEMBERS UPDATE:', channelId, members);
+
+      const store = useChannelsStore();
+      const ch = store.channelsList.find((c) => c.id === channelId);
+
+      if (ch) {
+        ch.members = members; // <- reactive update 🔥
+      }
+
+      // Optional: If current /list view is visible, reactive rerender handles it automatically
+    });
+
+    this.socket.off('member:left');
+    this.socket.on('member:left', (payload) => {
+      console.log('MEMBER LEFT:', payload);
+
+      const store = useChannelsStore();
+      const ch = store.channelsList.find((c) => c.name === payload.channelName);
+
+      if (ch) {
+        ch.members = ch.members.filter((m) => m.id !== payload.userId);
+      }
+    });
+
+    this.socket.off('channel:deleted');
+    this.socket.on('channel:deleted', ({ channelId, channelName }) => {
+      console.log('CHANNEL DELETED:', channelName);
+
+      const store = useChannelsStore();
+      const index = store.channelsList.findIndex((c) => c.id === channelId);
+
+      if (index !== -1) {
+        store.channelsList.splice(index, 1);
+
+        // Ak bol aktívny tento kanál, prepni na prvý dostupný
+        if (store.activeChannel?.id === channelId) {
+          store.setActive(store.channelsList[0]?.name || '');
+        }
+      }
+    });
 
     this.subscribed = true;
     console.log('Subscribed to events for:', this.namespace);
+  }
+  public async leaveChannel(): Promise<void> {
+    if (!this.isJoined) return;
+
+    console.log('Leaving channel:', this.namespace);
+
+    await this.emitAsync('leaveChannel');
+    this.isJoined = false;
+    this.socket.disconnect(); // Voliteľné, ak chceš úplne odpojiť socket
   }
 
   public async joinChannel(): Promise<unknown> {
