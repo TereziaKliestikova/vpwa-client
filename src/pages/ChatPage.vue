@@ -1207,7 +1207,7 @@ const sendMessage = async () => {
         channelToLeave.value = activeChannel.value;
         await confirmLeaveChannel();
 
-        // ✅ Refresh channel list aby sa zobrazil update
+        // Refresh channel list aby sa zobrazil update
         await channelsStore.fetchChannels();
 
         newMessage.value = '';
@@ -1279,78 +1279,6 @@ const sendMessage = async () => {
     newMessage.value = '';
   }
 };
-
-// IVKINE:
-// if (command === 'join') {
-//   const inputName = parts[1]?.trim()
-//   if (!inputName) {
-//     systemMessage.value = 'Usage: /join channelName [private]'
-//     return
-//   }
-
-//   const type: 'public' | 'private' = parts
-//     .slice(2)
-//     .join(' ')
-//     .toLowerCase()
-//     .includes('private')
-//     ? 'private'
-//     : 'public'
-
-//   // Try to find existing channel locally
-//   let ch = channels.value.find(
-//     (c) => c.name.toLowerCase() === inputName.toLowerCase()
-//   )
-
-//   if (!ch) {
-//     // Create locally first (like the old days)
-//     const tempChannel: Channel = {
-//       id: Date.now(), // temporary ID, will be replaced by real one from server
-//       name: inputName,
-//       type,
-//       members: [],
-//       isAdmin: true,
-//     }
-
-//     // Add to store immediately (optimistic UI)
-//     channelsStore.channelsList.unshift(tempChannel)
-//     ch = tempChannel
-
-//     systemMessage.value = `Channel "${inputName}" created (${type})`
-//   } else {
-//     systemMessage.value = `Joined channel "${ch.name}"`
-//   }
-
-//   // Switch to it
-//   channelsStore.setActive(ch.name)
-
-//   // Join via socket
-//   const socket = channelService.join(ch.name)
-//   if (!socket.socket.connected) {
-//     await new Promise<void>((resolve) => socket.socket.once('connect', resolve))
-//   }
-
-//   try {
-//     await socket.joinChannel()
-//     systemMessage.value = `Joined ${ch.name}`
-//   } catch (err) {
-//     systemMessage.value = 'Failed to join channel'
-//     console.error(err)
-//     return
-//   }
-
-//   try {
-//     const messages = await socket.loadMessages()
-//     messages.forEach((m) => channelsStore.newMessage(ch.name, m))
-//   } catch (err) {
-//     systemMessage.value = 'You are not a member'
-//     console.error(err)
-//   }
-
-//   await nextTick()
-//   await scrollToBottom()
-
-//   return // stop further processing (important!)
-// }
 </script>
 
 <style scoped>
