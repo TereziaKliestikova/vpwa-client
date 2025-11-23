@@ -21,6 +21,19 @@ export class ChannelSocketManager extends SocketManager {
     return this;
   }
 
+  //pocuva na kicks
+  public onUserKicked(
+    callback: (data: {
+      userId: number;
+      nickname: string;
+      displayName: string;
+      bannedBy: string;
+      isAdmin: boolean;
+    }) => void,
+  ) {
+    this.socket.on('user:kicked', callback);
+  }
+
   public subscribe(): void {
     if (this.subscribed) {
       console.log('Already subscribed to:', this.namespace);
