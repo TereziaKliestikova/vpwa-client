@@ -753,6 +753,41 @@ const selectChannel = async (ch: Channel) => {
   await scrollToBottom();
 };
 
+const canInvitePeople = computed(() => {
+  if (!activeChannel.value) return false;
+
+  // Public channels: anyone can invite
+  if (activeChannel.value.type === 'public') return true;
+
+  // Private channels: only admin can invite
+  return activeChannel.value.isAdmin;
+});
+
+const canRemovePeople = computed(() => {
+  if (!activeChannel.value) return false;
+
+  // Public channels: anyone can remove? Or only admin? (decide your rule)
+  // For now, let's say only admin can remove from any channel
+  return activeChannel.value.isAdmin;
+});
+
+const canKickPeople = computed(() => {
+  if (!activeChannel.value) return false;
+
+  // Only in public channels AND you're not admin
+  return activeChannel.value.type === 'public' && !activeChannel.value.isAdmin;
+});
+
+const showKickPeopleDialog = ref(false);
+
+const kickPeopleFromChannel = () => {
+  if (!activeChannel.value) return;
+  // TODO: Implement kick voting logic
+  systemMessage.value = 'Kick voting will be implemented with /kick command';
+  showKickPeopleDialog.value = false;
+  selectedNicknames.value = [];
+};
+
 const openInvitations = () => (showInvitationsDialog.value = true);
 const acceptInvite = (id: number) => {
   const inv = invitations.value.find((i) => i.id === id);
@@ -880,23 +915,20 @@ const confirmLeaveChannel = async () => {
   const memberCount = channelToLeave.value.members?.length || 0;
 
   try {
-    // Call backend to leave channel
+    // NAJPRV WebSocket leave (aby backend emitol member:left)
+    const socket = channelService.in(channelName);
+    if (socket) {
+      await socket.leaveChannel(); // ← volá backend leaveChannel cez WS
+    }
+
+    // POTOM HTTP leave (pre istotu, ak WS zlyhá)
     await api.post(`/api/channels/${channelId}/leave`);
 
-    // Remove from local store
-    const index = channelsStore.channelsList.findIndex((c) => c.id === channelId);
-    if (index !== -1) {
-      channelsStore.channelsList.splice(index, 1);
-    }
+    // ✅ Refresh channel list (natiahne aktuálne dáta z backendu)
+    await channelsStore.fetchChannels();
 
     // Clear active channel
     channelsStore.setActive(channelsStore.channelsList[0]?.name || '');
-
-    // Leave WebSocket room
-    const socket = channelService.in(channelName);
-    if (socket) {
-      socket.socket.disconnect();
-    }
 
     // Check if user was the last member
     if (memberCount <= 1) {
@@ -912,6 +944,15 @@ const confirmLeaveChannel = async () => {
     channelToLeave.value = null;
   }
 };
+
+watch(
+  () => channelsStore.activeChannelMembers,
+  (newMembers) => {
+    console.log('Active channel members updated:', newMembers.length);
+    // Dialog sa automaticky updatuje vďaka computed channelMembers
+  },
+  { deep: true },
+);
 
 //deleting a channel
 const showDeleteConfirm = ref(false);
@@ -1100,42 +1141,6 @@ const isMyMessage = (msg: DisplayMessage) => {
   return msg.user === myName;
 };
 
-const canInvitePeople = computed(() => {
-  if (!activeChannel.value) return false;
-
-  // Public channels: anyone can invite
-  if (activeChannel.value.type === 'public') return true;
-
-  // Private channels: only admin can invite
-  return activeChannel.value.isAdmin;
-});
-
-const canRemovePeople = computed(() => {
-  if (!activeChannel.value) return false;
-
-  // Public channels: anyone can remove? Or only admin? (decide your rule)
-  // For now, let's say only admin can remove from any channel
-  return activeChannel.value.isAdmin;
-});
-
-//KICKING FUNCTIONALITY
-const canKickPeople = computed(() => {
-  if (!activeChannel.value) return false;
-
-  // Only in public channels AND you're not admin
-  return activeChannel.value.type === 'public' && !activeChannel.value.isAdmin;
-});
-
-const showKickPeopleDialog = ref(false);
-
-const kickPeopleFromChannel = () => {
-  if (!activeChannel.value) return;
-  // TODO: Implement kick voting logic
-  systemMessage.value = 'Kick voting will be implemented with /kick command';
-  showKickPeopleDialog.value = false;
-  selectedNicknames.value = [];
-};
-
 const sendMessage = async () => {
   const text = newMessage.value.trim();
   if (!text) return;
@@ -1164,9 +1169,9 @@ const sendMessage = async () => {
         );
 
         if (existingChannel) {
-          // chnnael exists and is private
+          // channel exists and is private
           if (existingChannel.type === 'private') {
-            systemMessage.value = `"${existingChannel.name}" is a private channel. Only admin can invite you.`;
+            systemMessage.value = `"${existingChannel.name}" is a private channel. Only admins can invite you.`;
             newMessage.value = '';
             return;
           }
@@ -1401,78 +1406,6 @@ const sendMessage = async () => {
     newMessage.value = '';
   }
 };
-
-// IVKINE:
-// if (command === 'join') {
-//   const inputName = parts[1]?.trim()
-//   if (!inputName) {
-//     systemMessage.value = 'Usage: /join channelName [private]'
-//     return
-//   }
-
-//   const type: 'public' | 'private' = parts
-//     .slice(2)
-//     .join(' ')
-//     .toLowerCase()
-//     .includes('private')
-//     ? 'private'
-//     : 'public'
-
-//   // Try to find existing channel locally
-//   let ch = channels.value.find(
-//     (c) => c.name.toLowerCase() === inputName.toLowerCase()
-//   )
-
-//   if (!ch) {
-//     // Create locally first (like the old days)
-//     const tempChannel: Channel = {
-//       id: Date.now(), // temporary ID, will be replaced by real one from server
-//       name: inputName,
-//       type,
-//       members: [],
-//       isAdmin: true,
-//     }
-
-//     // Add to store immediately (optimistic UI)
-//     channelsStore.channelsList.unshift(tempChannel)
-//     ch = tempChannel
-
-//     systemMessage.value = `Channel "${inputName}" created (${type})`
-//   } else {
-//     systemMessage.value = `Joined channel "${ch.name}"`
-//   }
-
-//   // Switch to it
-//   channelsStore.setActive(ch.name)
-
-//   // Join via socket
-//   const socket = channelService.join(ch.name)
-//   if (!socket.socket.connected) {
-//     await new Promise<void>((resolve) => socket.socket.once('connect', resolve))
-//   }
-
-//   try {
-//     await socket.joinChannel()
-//     systemMessage.value = `Joined ${ch.name}`
-//   } catch (err) {
-//     systemMessage.value = 'Failed to join channel'
-//     console.error(err)
-//     return
-//   }
-
-//   try {
-//     const messages = await socket.loadMessages()
-//     messages.forEach((m) => channelsStore.newMessage(ch.name, m))
-//   } catch (err) {
-//     systemMessage.value = 'You are not a member'
-//     console.error(err)
-//   }
-
-//   await nextTick()
-//   await scrollToBottom()
-
-//   return // stop further processing (important!)
-// }
 </script>
 
 <style scoped>
