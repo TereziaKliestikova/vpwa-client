@@ -629,22 +629,6 @@ const getUserByName = (name: string): User => {
 
 const newChannelType = ref<'public' | 'private'>('public');
 
-// async function fetchChannels() {
-//   try {
-//     const response = await api.get('/api/channels');
-//     channels.value = response.data;
-//     if (channels.value.length > 0) {
-//       activeChannel.value = channels.value[0];
-//     }
-//   } catch (error) {
-//     console.error('Failed to fetch channels:', error);
-//     // $q.notify({
-//     //   type: 'negative',
-//     //   message: 'Nepodarilo sa načítať kanály',
-//     // });
-//   }
-// }
-
 const invitations = ref<Invitation[]>([{ id: 1, from: 'Tomas', channel: 'Developers' }]);
 
 const invitationCount = computed(() => invitations.value.length);
@@ -768,33 +752,6 @@ const selectChannel = async (ch: Channel) => {
   await nextTick();
   await scrollToBottom();
 };
-
-// const addFriend = () => {
-//   const name = newFriendName.value.trim();
-//   if (!name) return;
-//   const nicknameExists = friends.value.some(f => f.name.toLowerCase() === name.toLowerCase());
-//   if (nicknameExists) {
-//     alert('You are already friends with this person!');
-//     return;
-//   }
-
-//   const newFr: Friend = {
-//     id: friends.value.length + 1,
-//     name,
-//     avatar: 'https://cdn.quasar.dev/img/avatar.png',
-//     status: 'offline' as const,
-//     messages: [],
-//   };
-//   friends.value.unshift(newFr);
-//   activeFriend.value = newFr;
-//   newFriendName.value = '';
-//   showAddFriendDialog.value = false;
-// };
-
-// const removeFriend = (id: number) => {
-//   friends.value = friends.value.filter(f => f.id !== id);
-//   if (activeFriend.value?.id === id) activeFriend.value = null;
-// };
 
 const openInvitations = () => (showInvitationsDialog.value = true);
 const acceptInvite = (id: number) => {
@@ -1322,6 +1279,21 @@ const sendMessage = async () => {
 
       if (command === 'list') {
         showMembersDialog.value = true;
+        newMessage.value = '';
+        return;
+      } else if (command === 'cancel') {
+        if (!activeChannel.value) {
+          systemMessage.value = 'No active channel';
+          newMessage.value = '';
+          return;
+        }
+
+        channelToLeave.value = activeChannel.value;
+        await confirmLeaveChannel();
+
+        // Refresh channel list aby sa zobrazil update
+        await channelsStore.fetchChannels();
+
         newMessage.value = '';
         return;
       } else if (command === 'kick') {
