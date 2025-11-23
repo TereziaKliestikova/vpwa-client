@@ -1324,6 +1324,44 @@ const sendMessage = async () => {
         showMembersDialog.value = true;
         newMessage.value = '';
         return;
+      } else if (command === 'kick') {
+        const nickname = parts[1]?.trim();
+        if (!nickname) {
+          systemMessage.value = 'Usage: /kick nickname';
+          newMessage.value = '';
+          return;
+        }
+
+        if (!activeChannel.value) {
+          systemMessage.value = 'No active channel';
+          newMessage.value = '';
+          return;
+        }
+
+        if (activeChannel.value.type !== 'public') {
+          systemMessage.value = 'Kick voting only works in public channels';
+          newMessage.value = '';
+          return;
+        }
+
+        try {
+          const response = await api.post(`/api/channels/${activeChannel.value.id}/kick`, {
+            nickname: nickname,
+          });
+
+          systemMessage.value = response.data.message;
+
+          // If user was banned, refresh channel members
+          if (response.data.banned) {
+            await channelsStore.fetchChannels();
+          }
+        } catch (error: unknown) {
+          const axiosError = error as { response?: { data?: { error?: string } } };
+          systemMessage.value = axiosError.response?.data?.error || 'Failed to kick user';
+        }
+
+        newMessage.value = '';
+        return;
       } else {
         systemMessage.value = 'Unknown command: ' + text;
         newMessage.value = '';
