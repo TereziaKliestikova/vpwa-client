@@ -558,89 +558,16 @@ const toggleChannels = () => {
   if (showChannels.value) showFriends.value = false;
 };
 
-const users = ref<User[]>([
-  {
-    id: 1,
-    name: 'Milan',
-    avatar: 'https://cdn.quasar.dev/img/avatar1.jpg',
-    status: 'online',
-    messages: [],
-  },
-  {
-    id: 2,
-    name: 'Katka',
-    avatar: 'https://cdn.quasar.dev/img/avatar2.jpg',
-    status: 'offline',
-    messages: [
-      { id: 1, user: 'Katka', text: 'Ahoj' },
-      { id: 2, user: 'Katka', text: 'Nevieš kedy máme odovzdať VPWA?' },
-      { id: 3, user: 'Katka', text: 'Neviem či stíham' },
-    ],
-  },
-  {
-    id: 3,
-    name: 'Kubo',
-    avatar: 'https://cdn.quasar.dev/img/avatar3.jpg',
-    status: 'dnd',
-    messages: [],
-  },
-  {
-    id: 4,
-    name: 'Maggie',
-    avatar: 'https://cdn.quasar.dev/img/avatar4.jpg',
-    status: 'dnd',
-    messages: [],
-  },
-  {
-    id: 5,
-    name: 'Tomas',
-    avatar: 'https://cdn.quasar.dev/img/avatar5.jpg',
-    status: 'online',
-    messages: [],
-  },
-  {
-    id: 6,
-    name: 'Martin',
-    avatar: 'https://cdn.quasar.dev/img/avatar4.jpg',
-    status: 'offline',
-    messages: [],
-  },
-  {
-    id: 7,
-    name: 'Andrej',
-    avatar: 'https://cdn.quasar.dev/img/avatar4.jpg',
-    status: 'dnd',
-    messages: [],
-  },
-  {
-    id: 8,
-    name: 'Ema',
-    avatar: 'https://cdn.quasar.dev/img/avatar1.jpg',
-    status: 'online',
-    messages: [],
-  },
-  {
-    id: 9,
-    name: 'Miska',
-    avatar: 'https://cdn.quasar.dev/img/avatar4.jpg',
-    status: 'online',
-    messages: [],
-  },
-  {
-    id: 10,
-    name: 'Juraj',
-    avatar: 'https://cdn.quasar.dev/img/avatar2.jpg',
-    status: 'online',
-    messages: [],
-  },
-  {
-    id: 11,
-    name: 'MAx',
-    avatar: 'https://cdn.quasar.dev/img/avatar4.jpg',
-    status: 'offline',
-    messages: [],
-  },
-]);
+const users = ref<User[]>([]);
+
+const fetchUsers = async () => {
+  try {
+    const response = await api.get('/api/users');
+    users.value = response.data;
+  } catch (error) {
+    console.error('Failed to fetch users:', error);
+  }
+};
 
 const getUserByName = (name: string): User => {
   return (
@@ -654,6 +581,22 @@ const getUserByName = (name: string): User => {
 };
 
 const newChannelType = ref<'public' | 'private'>('public');
+
+// async function fetchChannels() {
+//   try {
+//     const response = await api.get('/api/channels');
+//     channels.value = response.data;
+//     if (channels.value.length > 0) {
+//       activeChannel.value = channels.value[0];
+//     }
+//   } catch (error) {
+//     console.error('Failed to fetch channels:', error);
+//     // $q.notify({
+//     //   type: 'negative',
+//     //   message: 'Nepodarilo sa načítať kanály',
+//     // });
+//   }
+// }
 
 const invitations = ref<Invitation[]>([{ id: 1, from: 'Tomas', channel: 'Developers' }]);
 
@@ -778,6 +721,33 @@ const selectChannel = async (ch: Channel) => {
   await nextTick();
   await scrollToBottom();
 };
+
+// const addFriend = () => {
+//   const name = newFriendName.value.trim();
+//   if (!name) return;
+//   const nicknameExists = friends.value.some(f => f.name.toLowerCase() === name.toLowerCase());
+//   if (nicknameExists) {
+//     alert('You are already friends with this person!');
+//     return;
+//   }
+
+//   const newFr: Friend = {
+//     id: friends.value.length + 1,
+//     name,
+//     avatar: 'https://cdn.quasar.dev/img/avatar.png',
+//     status: 'offline' as const,
+//     messages: [],
+//   };
+//   friends.value.unshift(newFr);
+//   activeFriend.value = newFr;
+//   newFriendName.value = '';
+//   showAddFriendDialog.value = false;
+// };
+
+// const removeFriend = (id: number) => {
+//   friends.value = friends.value.filter(f => f.id !== id);
+//   if (activeFriend.value?.id === id) activeFriend.value = null;
+// };
 
 const openInvitations = () => (showInvitationsDialog.value = true);
 const acceptInvite = (id: number) => {
@@ -906,20 +876,23 @@ const confirmLeaveChannel = async () => {
   const memberCount = channelToLeave.value.members?.length || 0;
 
   try {
-    // ✅ NAJPRV WebSocket leave (aby backend emitol member:left)
-    const socket = channelService.in(channelName);
-    if (socket) {
-      await socket.leaveChannel(); // ← volá backend leaveChannel cez WS
-    }
-
-    // ✅ POTOM HTTP leave (pre istotu, ak WS zlyhá)
+    // Call backend to leave channel
     await api.post(`/api/channels/${channelId}/leave`);
 
-    // ✅ Refresh channel list (natiahne aktuálne dáta z backendu)
-    await channelsStore.fetchChannels();
+    // Remove from local store
+    const index = channelsStore.channelsList.findIndex((c) => c.id === channelId);
+    if (index !== -1) {
+      channelsStore.channelsList.splice(index, 1);
+    }
 
     // Clear active channel
     channelsStore.setActive(channelsStore.channelsList[0]?.name || '');
+
+    // Leave WebSocket room
+    const socket = channelService.in(channelName);
+    if (socket) {
+      socket.socket.disconnect();
+    }
 
     // Check if user was the last member
     if (memberCount <= 1) {
@@ -935,15 +908,6 @@ const confirmLeaveChannel = async () => {
     channelToLeave.value = null;
   }
 };
-
-watch(
-  () => channelsStore.activeChannelMembers,
-  (newMembers) => {
-    console.log('Active channel members updated:', newMembers.length);
-    // Dialog sa automaticky updatuje vďaka computed channelMembers
-  },
-  { deep: true },
-);
 
 //deleting a channel
 const showDeleteConfirm = ref(false);
@@ -1057,6 +1021,7 @@ onMounted(async () => {
 
   try {
     await authStore.check();
+    await fetchUsers();
     await channelsStore.fetchChannels();
 
     // Ak máš uložený posledný kanál (napr. v localStorage), obnov ho
@@ -1261,22 +1226,6 @@ const sendMessage = async () => {
 
       if (channelsStore.channelsList.length === 0) {
         systemMessage.value = 'You need to join or create a channel first. Try: /join General';
-        newMessage.value = '';
-        return;
-      }
-      if (command === 'cancel') {
-        if (!activeChannel.value) {
-          systemMessage.value = 'No active channel';
-          newMessage.value = '';
-          return;
-        }
-
-        channelToLeave.value = activeChannel.value;
-        await confirmLeaveChannel();
-
-        // ✅ Refresh channel list aby sa zobrazil update
-        await channelsStore.fetchChannels();
-
         newMessage.value = '';
         return;
       }

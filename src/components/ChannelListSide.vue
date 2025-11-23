@@ -40,12 +40,6 @@
             <q-icon v-if="channel.type === 'public'" name="public"></q-icon>
             <q-icon v-else name="lock"></q-icon>
           </div>
-          <div v-if="channel.name === 'UniLife'" class="typing-indicator">
-            <b class="typing-name text-caption text-grey-8">Milan is typing</b>
-            <span class="dot"></span>
-            <span class="dot"></span>
-            <span class="dot"></span>
-          </div>
         </q-item-section>
       </q-item>
     </q-list>
