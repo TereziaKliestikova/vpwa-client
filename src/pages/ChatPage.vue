@@ -67,11 +67,29 @@
                 <q-btn flat round dense icon="more_vert">
                   <q-menu>
                     <q-list style="min-width: 150px">
-                      <q-item clickable v-close-popup @click="showAddPeopleDialog = true">
-                        <q-item-section>Add people</q-item-section>
+                      <q-item
+                        v-if="canInvitePeople"
+                        clickable
+                        v-close-popup
+                        @click="showAddPeopleDialog = true"
+                      >
+                        <q-item-section>Invite people</q-item-section>
                       </q-item>
-                      <q-item clickable v-close-popup @click="showRemovePeopleDialog = true">
+                      <q-item
+                        v-if="canRemovePeople"
+                        clickable
+                        v-close-popup
+                        @click="showRemovePeopleDialog = true"
+                      >
                         <q-item-section>Remove people</q-item-section>
+                      </q-item>
+                      <q-item
+                        v-if="canKickPeople"
+                        clickable
+                        v-close-popup
+                        @click="showKickPeopleDialog = true"
+                      >
+                        <q-item-section>Kick people</q-item-section>
                       </q-item>
                       <q-item clickable v-close-popup @click="leaveChannel">
                         <q-item-section>Leave channel</q-item-section>
@@ -320,7 +338,7 @@
     <q-dialog v-model="showAddPeopleDialog">
       <q-card style="min-width: 400px">
         <q-card-section class="row justify-between items-center">
-          <div class="text-h6">Add people to {{ activeChannel?.name }}</div>
+          <div class="text-h6">Invite people to {{ activeChannel?.name }}</div>
           <q-btn flat icon="close" v-close-popup></q-btn>
         </q-card-section>
 
@@ -463,6 +481,35 @@
         <q-card-actions align="right">
           <q-btn flat label="Cancel" color="black" v-close-popup />
           <q-btn color="primary" label="Leave" @click="confirmLeaveChannel" />
+        </q-card-actions>
+      </q-card>
+    </q-dialog>
+
+    <q-dialog v-model="showKickPeopleDialog">
+      <q-card style="min-width: 400px">
+        <q-card-section class="row justify-between items-center">
+          <div class="text-h6">Vote to kick from {{ activeChannel?.name }}</div>
+          <q-btn flat icon="close" v-close-popup></q-btn>
+        </q-card-section>
+
+        <q-card-section>
+          <q-select
+            v-model="selectedNicknames"
+            multiple
+            :options="getChannelMembers()"
+            label="Select members to vote kick"
+            outlined
+            dense
+            use-chips
+          />
+          <div class="text-caption text-grey-7 q-mt-sm">
+            3 votes needed to ban a member permanently
+          </div>
+        </q-card-section>
+
+        <q-card-actions align="right">
+          <q-btn flat label="Cancel" color="black" v-close-popup />
+          <q-btn flat label="Vote Kick" color="warning" @click="kickPeopleFromChannel" />
         </q-card-actions>
       </q-card>
     </q-dialog>
@@ -1096,6 +1143,42 @@ const isMyMessage = (msg: DisplayMessage) => {
   return msg.user === myName;
 };
 
+const canInvitePeople = computed(() => {
+  if (!activeChannel.value) return false;
+
+  // Public channels: anyone can invite
+  if (activeChannel.value.type === 'public') return true;
+
+  // Private channels: only admin can invite
+  return activeChannel.value.isAdmin;
+});
+
+const canRemovePeople = computed(() => {
+  if (!activeChannel.value) return false;
+
+  // Public channels: anyone can remove? Or only admin? (decide your rule)
+  // For now, let's say only admin can remove from any channel
+  return activeChannel.value.isAdmin;
+});
+
+//KICKING FUNCTIONALITY
+const canKickPeople = computed(() => {
+  if (!activeChannel.value) return false;
+
+  // Only in public channels AND you're not admin
+  return activeChannel.value.type === 'public' && !activeChannel.value.isAdmin;
+});
+
+const showKickPeopleDialog = ref(false);
+
+const kickPeopleFromChannel = () => {
+  if (!activeChannel.value) return;
+  // TODO: Implement kick voting logic
+  systemMessage.value = 'Kick voting will be implemented with /kick command';
+  showKickPeopleDialog.value = false;
+  selectedNicknames.value = [];
+};
+
 const sendMessage = async () => {
   const text = newMessage.value.trim();
   if (!text) return;
@@ -1124,7 +1207,14 @@ const sendMessage = async () => {
         );
 
         if (existingChannel) {
-          // channel exists - join it
+          // chnnael exists and is private
+          if (existingChannel.type === 'private') {
+            systemMessage.value = `"${existingChannel.name}" is a private channel. Only admin can invite you.`;
+            newMessage.value = '';
+            return;
+          }
+
+          // channel exists and is public - join it
           const socket = channelService.join(existingChannel.name);
           if (!socket.socket.connected) {
             await new Promise<void>((resolve) => socket.socket.once('connect', resolve));
