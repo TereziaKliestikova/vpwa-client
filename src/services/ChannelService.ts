@@ -4,6 +4,11 @@ import type { SerializedMessage } from 'src/contracts';
 import type { BootParams } from './SocketManager';
 import type { Invitation } from 'src/types/invitation';
 
+export interface BanStatus {
+  status: 'ok' | 'banned' | 'not_found';
+  message?: string;
+}
+
 export class ChannelSocketManager extends SocketManager {
   private subscribed = false;
   public isJoined = false;
@@ -66,6 +71,24 @@ export class ChannelSocketManager extends SocketManager {
   }> {
     return this.emitAsync('revokeUser', nickname);
   }
+
+  public async deleteChannel(channelId: number): Promise<{
+    message: string;
+  }> {
+    // ✅ Odošleme ID kanála (názov sa neposiela, lebo ID je unikátny identifikátor)
+    return this.emitAsync('deleteChannel', channelId);
+  }
+
+  public async checkBanStatus(channelName: string): Promise<BanStatus> {
+    // Používame globálne volanie (cez manažér, ku ktorému sme pripojení, napr. 'General')
+    return this.emitAsync('checkBanStatus', channelName);
+  }
+
+  // public onChannelKicked(callback: (data: { channelId: number; channelName: string }) => void) {
+  //   // ✅ Použite .off() pred .on() na zabránenie duplikácie!
+  //   this.socket.off('channel:kicked', callback); // Musíte použiť aj v .off(callback)!
+  //   this.socket.on('channel:kicked', callback);
+  // }
 
   public async acceptInvitation(invitationId: number): Promise<{
     success: true;

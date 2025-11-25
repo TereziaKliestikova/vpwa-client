@@ -29,12 +29,23 @@ export const useInvitationsStore = defineStore('invitations', {
     },
     async accept(invitation: Invitation) {
       try {
+        //TOTO ma topovat channel ale nejde to!
         const socket = channelService.join(invitation.channelName);
         await socket.acceptInvitation(invitation.id);
 
         const channelsStore = useChannelsStore();
         await channelsStore.fetchChannels(); // refresh zoznamu
-        channelsStore.setActive(invitation.channelName);
+
+        const channelToTop = channelsStore.channelsList.find((c) => c.id === invitation.channelId);
+
+        if (channelToTop) {
+          // 2. ✅ Odstráňte ho z aktuálnej pozície
+          channelsStore.removeChannelById(channelToTop.id);
+
+          // 3. ✅ Topnite ho
+          channelsStore.channelsList.unshift(channelToTop);
+          channelsStore.setActive(channelToTop.name);
+        }
 
         this.remove(invitation.id);
       } catch (err) {

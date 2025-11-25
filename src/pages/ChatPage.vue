@@ -911,7 +911,7 @@ const leaveChannel = () => {
 //   if (!channelToLeave.value) return;
 
 //   const channelName = channelToLeave.value.name;
-//   const channelId = channelToLeave.value.id;
+//   // const channelId = channelToLeave.value.id;
 //   const memberCount = channelToLeave.value.members?.length || 0;
 
 //   try {
@@ -922,7 +922,7 @@ const leaveChannel = () => {
 //     }
 
 //     // POTOM HTTP leave (pre istotu, ak WS zlyhá)
-//     await api.post(`/api/channels/${channelId}/leave`);
+//     // await api.post(`/api/channels/${channelId}/leave`);
 
 //     // ✅ Refresh channel list (natiahne aktuálne dáta z backendu)
 //     await channelsStore.fetchChannels();
@@ -1026,8 +1026,6 @@ const confirmDeleteChannel = async () => {
     if (socket) {
       socket.socket.disconnect();
     }
-
-    systemMessage.value = `Channel "${channelName}" deleted successfully`;
   } catch (error) {
     console.error('Failed to delete channel:', error);
     systemMessage.value = 'Failed to delete channel';
@@ -1162,13 +1160,6 @@ onMounted(async () => {
     void channelsStore.fetchChannels();
   }) as EventListener);
 
-  window.addEventListener('unhandledrejection', (event) => {
-    console.error('🔴🔴🔴 UNHANDLED REJECTION 🔴🔴🔴');
-    console.error('Reason:', event.reason);
-    console.error('Stack:', event.reason?.stack);
-    console.error('Promise:', event.promise);
-  });
-
   try {
     await authStore.check();
     await fetchUsers();
@@ -1276,6 +1267,25 @@ const sendMessage = async () => {
           // channel exists and is private
           if (existingChannel.type === 'private') {
             systemMessage.value = `"${existingChannel.name}" is a private channel. Only admins can invite you.`;
+            newMessage.value = '';
+            return;
+          }
+
+          //check if user is banned from channel
+          try {
+            const manager = channelService.join('General'); // Global manažér
+            const banStatus = await manager.checkBanStatus(inputName);
+
+            if (banStatus.status === 'banned') {
+              systemMessage.value =
+                banStatus.message || `You are banned from channel "${inputName}".`;
+              newMessage.value = '';
+              return; //Ban existuje, return!
+            }
+          } catch (error) {
+            // Ak zlyhá Socket, nemali by sme povoliť join
+            console.error('Failed to check ban status:', error);
+            systemMessage.value = 'Failed to check channel status due to connectivity error.';
             newMessage.value = '';
             return;
           }
@@ -1397,13 +1407,35 @@ const sendMessage = async () => {
           return;
         }
 
-        channelToLeave.value = activeChannel.value;
-        await confirmLeaveChannel();
-        newMessage.value = '';
+        // If admin, delete the channel (channel will be destroyed for everyone)
+        if (activeChannel.value.isAdmin) {
+          channelToDelete.value = activeChannel.value;
+          await confirmDeleteChannel();
+          systemMessage.value = `Channel "${activeChannel.value.name}" has been closed by admin`;
+        } else {
+          // Regular member - just leave
+          channelToLeave.value = activeChannel.value;
+          await confirmLeaveChannel();
+        }
 
         // Refresh channel list aby sa zobrazil update
         // await channelsStore.fetchChannels();
 
+        return;
+      } else if (command === 'quit') {
+        if (!activeChannel.value) {
+          systemMessage.value = 'No active channel';
+          newMessage.value = '';
+          return;
+        }
+
+        if (activeChannel.value.isAdmin) {
+          channelToDelete.value = activeChannel.value;
+          await confirmDeleteChannel();
+          systemMessage.value = `Channel "${activeChannel.value.name}" has been discarded by admin`;
+        } else {
+          systemMessage.value = 'Only admin can close the channel';
+        }
         return;
       } else if (command === 'kick') {
         const nickname = parts[1]?.trim();
