@@ -23,9 +23,9 @@
           title="Invitations"
           @click="openInvitations"
         />
-        <q-badge v-if="invitationCount > 0" color="red" floating transparent>{{
-          invitationCount
-        }}</q-badge>
+        <q-badge v-if="invitationCount > 0" color="red" floating transparent>
+          {{ invitationCount }}
+        </q-badge>
       </div>
     </div>
 
@@ -263,10 +263,13 @@
 
         <q-list bordered separator>
           <q-item v-for="invite in invitations" :key="invite.id">
-            <q-item-section> {{ invite.from }} invited you to {{ invite.channel }} </q-item-section>
+            <q-item-section>
+              {{ invite.from }} invited you to {{ invite.channelName }}
+              <span class="text-grey-6">({{ invite.channelType }})</span>
+            </q-item-section>
             <q-item-section side>
-              <q-btn dense flat color="primary" label="Accept" @click="acceptInvite(invite.id)" />
-              <q-btn dense flat color="black" label="Decline" @click="declineInvite(invite.id)" />
+              <q-btn dense flat color="primary" label="Accept" @click="acceptInvite(invite)" />
+              <q-btn dense flat color="black" label="Decline" @click="declineInvite(invite)" />
             </q-item-section>
           </q-item>
 
@@ -525,6 +528,8 @@ import ChannelListSide from '../components/ChannelListSide.vue';
 import type { QScrollArea } from 'quasar';
 import type { Channel } from 'src/types/channel';
 import channelService from 'src/services/ChannelService';
+import { useInvitationsStore } from 'src/stores/invitations';
+import type { Invitation } from 'src/types/invitation';
 
 // backend
 import { api } from 'src/boot/axios';
@@ -544,12 +549,6 @@ interface Message {
   id: number;
   user: string;
   text: string;
-}
-
-interface Invitation {
-  id: number;
-  from: string;
-  channel: string;
 }
 
 const channelMembers = computed(() => {
@@ -629,9 +628,9 @@ const getUserByName = (name: string): User => {
 
 const newChannelType = ref<'public' | 'private'>('public');
 
-const invitations = ref<Invitation[]>([{ id: 1, from: 'Tomas', channel: 'Developers' }]);
+// const invitations = ref<Invitation[]>([{ id: 1, from: 'Tomas', channel: 'Developers' }]);
 
-const invitationCount = computed(() => invitations.value.length);
+// const invitationCount = computed(() => invitations.value.length);
 
 const channelsStore = useChannelsStore();
 const currentMessages = computed(() => {
@@ -788,21 +787,37 @@ const kickPeopleFromChannel = () => {
   selectedNicknames.value = [];
 };
 
-const openInvitations = () => (showInvitationsDialog.value = true);
-const acceptInvite = (id: number) => {
-  const inv = invitations.value.find((i) => i.id === id);
-  if (inv) {
-    const existingChannel = channels.value.find((c) => c.name === inv.channel);
-    if (existingChannel) {
-      channelsStore.setActive(existingChannel.name);
-    }
-  }
-  invitations.value = invitations.value.filter((i) => i.id !== id);
+// const openInvitations = () => (showInvitationsDialog.value = true);
+// const acceptInvite = (id: number) => {
+//   const inv = invitations.value.find((i) => i.id === id);
+//   if (inv) {
+//     const existingChannel = channels.value.find((c) => c.name === inv.channel);
+//     if (existingChannel) {
+//       channelsStore.setActive(existingChannel.name);
+//     }
+//   }
+//   invitations.value = invitations.value.filter((i) => i.id !== id);
+// };
+
+// const declineInvite = (id: number) =>
+//   (invitations.value = invitations.value.filter((i) => i.id !== id));
+
+const invitationsStore = useInvitationsStore();
+const invitationCount = computed(() => invitationsStore.count);
+const invitations = computed(() => invitationsStore.list);
+
+const openInvitations = () => {
+  showInvitationsDialog.value = true;
 };
 
-const declineInvite = (id: number) =>
-  (invitations.value = invitations.value.filter((i) => i.id !== id));
+const acceptInvite = async (invitation: Invitation) => {
+  await invitationsStore.accept(invitation);
+  showInvitationsDialog.value = false;
+};
 
+const declineInvite = async (invitation: Invitation) => {
+  await invitationsStore.decline(invitation);
+};
 // na filtrovanie v tych side baroch channel
 const filteredChannels = computed(() => {
   if (channelFilter.value === 'all') return channels.value;
@@ -907,38 +922,99 @@ const leaveChannel = () => {
   showLeaveConfirm.value = true;
 };
 
+// const confirmLeaveChannel = async () => {
+//   if (!channelToLeave.value) return;
+
+//   const channelName = channelToLeave.value.name;
+//   const channelId = channelToLeave.value.id;
+//   const memberCount = channelToLeave.value.members?.length || 0;
+
+//   try {
+//     // NAJPRV WebSocket leave (aby backend emitol member:left)
+//     const socket = channelService.in(channelName);
+//     if (socket) {
+//       await socket.leaveChannel(); // ← volá backend leaveChannel cez WS
+//     }
+
+//     // POTOM HTTP leave (pre istotu, ak WS zlyhá)
+//     await api.post(`/api/channels/${channelId}/leave`);
+
+//     // ✅ Refresh channel list (natiahne aktuálne dáta z backendu)
+//     await channelsStore.fetchChannels();
+
+//     // Clear active channel
+//     channelsStore.setActive(channelsStore.channelsList[0]?.name || '');
+
+//     // Check if user was the last member
+//     if (memberCount <= 1) {
+//       systemMessage.value = `You were the last member. Channel "${channelName}" has been deleted.`;
+//     } else {
+//       systemMessage.value = `Left channel "${channelName}"`;
+//     }
+//   } catch (error) {
+//     console.error('Failed to leave channel:', error);
+//     systemMessage.value = 'Failed to leave channel';
+//   } finally {
+//     showLeaveConfirm.value = false;
+//     channelToLeave.value = null;
+//   }
+// };
+
+import type { AxiosError } from 'axios';
+
 const confirmLeaveChannel = async () => {
   if (!channelToLeave.value) return;
 
   const channelName = channelToLeave.value.name;
   const channelId = channelToLeave.value.id;
   const memberCount = channelToLeave.value.members?.length || 0;
+  const isLastMember = memberCount <= 1;
 
   try {
-    // NAJPRV WebSocket leave (aby backend emitol member:left)
+    // 1. WebSocket leave – toto je hlavný zdroj pravdy
     const socket = channelService.in(channelName);
     if (socket) {
-      await socket.leaveChannel(); // ← volá backend leaveChannel cez WS
+      await socket.leaveChannel();
     }
 
-    // POTOM HTTP leave (pre istotu, ak WS zlyhá)
-    await api.post(`/api/channels/${channelId}/leave`);
+    // 2. HTTP leave len ak NIE sme posledný člen
+    if (!isLastMember) {
+      try {
+        await api.post(`/api/channels/${channelId}/leave`);
+      } catch (httpError) {
+        // Ignorujeme 404 – môže nastať, ak niekto iný medzitým odišiel ako posledný
+        const axiosError = httpError as AxiosError;
+        if (axiosError.response?.status !== 404) {
+          throw httpError; // prehodíme ďalej ak to nie je 404
+        }
+      }
+    }
 
-    // ✅ Refresh channel list (natiahne aktuálne dáta z backendu)
+    // 3. Refresh zoznamu kanálov
     await channelsStore.fetchChannels();
 
-    // Clear active channel
-    channelsStore.setActive(channelsStore.channelsList[0]?.name || '');
+    // 4. Správa podľa toho, či kanál ešte existuje
+    const stillExists = channelsStore.channelsList.some((c) => c.id === channelId);
+    systemMessage.value = stillExists
+      ? `Left channel "${channelName}"`
+      : `You were the last member. Channel "${channelName}" has been deleted.`;
 
-    // Check if user was the last member
-    if (memberCount <= 1) {
-      systemMessage.value = `You were the last member. Channel "${channelName}" has been deleted.`;
-    } else {
-      systemMessage.value = `Left channel "${channelName}"`;
-    }
+    // 5. Presun na ďalší kanál (ak nejaký ostal)
+    channelsStore.setActive(channelsStore.channelsList[0]?.name ?? '');
   } catch (error) {
+    // Tu už vieme, že ide o neočakávanú chybu (nie 404 od HTTP leave)
     console.error('Failed to leave channel:', error);
-    systemMessage.value = 'Failed to leave channel';
+
+    const axiosError = error as AxiosError;
+
+    // Špeciálny prípad: 404 aj keď sme mysleli, že nie sme posledný → znamená, že kanál bol zmazaný
+    if (axiosError.response?.status === 404 && isLastMember) {
+      systemMessage.value = `You were the last member. Channel "${channelName}" has been deleted.`;
+      await channelsStore.fetchChannels();
+      channelsStore.setActive(channelsStore.channelsList[0]?.name ?? '');
+    } else {
+      systemMessage.value = 'Failed to leave channel';
+    }
   } finally {
     showLeaveConfirm.value = false;
     channelToLeave.value = null;
@@ -1057,6 +1133,13 @@ const handleNotificationClose = () => {
 
 // spustame fixne notifikaciu pri kazdom reloadnuti stranky
 onMounted(async () => {
+  await invitationsStore.loadInitial();
+
+  // Počúvaj nové pozvánky v reálnom čase
+  window.addEventListener('invitation:received', ((e: CustomEvent<Invitation>) => {
+    invitationsStore.add(e.detail);
+  }) as EventListener);
+
   window.addEventListener('unhandledrejection', (event) => {
     console.error('🔴🔴🔴 UNHANDLED REJECTION 🔴🔴🔴');
     console.error('Reason:', event.reason);
@@ -1295,11 +1378,11 @@ const sendMessage = async () => {
 
         channelToLeave.value = activeChannel.value;
         await confirmLeaveChannel();
+        newMessage.value = '';
 
         // Refresh channel list aby sa zobrazil update
-        await channelsStore.fetchChannels();
+        // await channelsStore.fetchChannels();
 
-        newMessage.value = '';
         return;
       } else if (command === 'kick') {
         const nickname = parts[1]?.trim();
@@ -1335,6 +1418,83 @@ const sendMessage = async () => {
         } catch (error: unknown) {
           const axiosError = error as { response?: { data?: { error?: string } } };
           systemMessage.value = axiosError.response?.data?.error || 'Failed to kick user';
+        }
+
+        newMessage.value = '';
+        return;
+      } else if (command === 'invite') {
+        if (!activeChannel.value) {
+          systemMessage.value = 'Please select a channel first';
+          newMessage.value = '';
+          return;
+        }
+
+        const nickname = parts[1]?.trim();
+        if (!nickname) {
+          systemMessage.value = 'Usage: /invite nickname';
+          newMessage.value = '';
+          return;
+        }
+
+        try {
+          const socket = channelService.in(activeChannel.value.name);
+          if (!socket) {
+            systemMessage.value = 'Not connected to channel';
+            newMessage.value = '';
+            return;
+          }
+
+          const result = await socket.inviteUsers([nickname]);
+
+          if (result.invitationsSent > 0) {
+            systemMessage.value = `Invitation sent to ${nickname}`;
+          } else {
+            systemMessage.value = `Could not invite ${nickname} (already member or invited)`;
+          }
+        } catch (err) {
+          console.error('Failed to invite:', err);
+          systemMessage.value = 'Failed to send invitation';
+        }
+
+        newMessage.value = '';
+        return;
+      }
+
+      // ==================== /revoke command ====================
+      if (command === 'revoke') {
+        if (!activeChannel.value) {
+          systemMessage.value = 'Please select a channel first';
+          newMessage.value = '';
+          return;
+        }
+
+        // Check if admin (for private channels)
+        if (activeChannel.value.type === 'private' && !activeChannel.value.isAdmin) {
+          systemMessage.value = 'Only admin can remove users from private channels';
+          newMessage.value = '';
+          return;
+        }
+
+        const nickname = parts[1]?.trim();
+        if (!nickname) {
+          systemMessage.value = 'Usage: /revoke nickname';
+          newMessage.value = '';
+          return;
+        }
+
+        try {
+          const socket = channelService.in(activeChannel.value.name);
+          if (!socket) {
+            systemMessage.value = 'Not connected to channel';
+            newMessage.value = '';
+            return;
+          }
+
+          const result = await socket.revokeUser(nickname);
+          systemMessage.value = result.message || `${nickname} removed from channel`;
+        } catch (err) {
+          console.error('Failed to revoke:', err);
+          systemMessage.value = 'Failed to remove user';
         }
 
         newMessage.value = '';
