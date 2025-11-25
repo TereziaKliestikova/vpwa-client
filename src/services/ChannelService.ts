@@ -2,6 +2,7 @@ import { SocketManager } from './SocketManager';
 import { useChannelsStore } from 'src/stores/channels';
 import type { SerializedMessage } from 'src/contracts';
 import type { BootParams } from './SocketManager';
+import type { Invitation } from 'src/types/invitation';
 
 export class ChannelSocketManager extends SocketManager {
   private subscribed = false;
@@ -32,6 +33,58 @@ export class ChannelSocketManager extends SocketManager {
     }) => void,
   ) {
     this.socket.on('user:kicked', callback);
+  }
+
+  public onInvitationReceived(callback: (invitation: Invitation) => void) {
+    this.socket.on('invitation:received', callback);
+  }
+
+  public onMemberJoined(
+    callback: (data: {
+      userId: number;
+      nickname: string;
+      avatar: string;
+      channelName: string;
+    }) => void,
+  ) {
+    this.socket.on('member:joined', callback);
+  }
+
+  // ==================== INVITATION METHODS ====================
+
+  public async inviteUsers(nicknames: string[]): Promise<{
+    success: boolean;
+    invitationsSent: number;
+    invitations?: Invitation[];
+  }> {
+    return this.emitAsync('inviteUsers', nicknames);
+  }
+
+  public async revokeUser(nickname: string): Promise<{
+    success: true;
+    message: string;
+  }> {
+    return this.emitAsync('revokeUser', nickname);
+  }
+
+  public async acceptInvitation(invitationId: number): Promise<{
+    success: true;
+    channel: {
+      id: number;
+      name: string;
+      type: 'public' | 'private';
+      isAdmin: boolean;
+    };
+  }> {
+    return this.emitAsync('acceptInvitation', invitationId);
+  }
+
+  public async declineInvitation(invitationId: number): Promise<unknown> {
+    return this.emitAsync('declineInvitation', invitationId);
+  }
+
+  public async getInvitations(): Promise<Invitation[]> {
+    return this.emitAsync('getInvitations');
   }
 
   public subscribe(): void {
@@ -115,7 +168,7 @@ export class ChannelSocketManager extends SocketManager {
 
     await this.emitAsync('leaveChannel');
     this.isJoined = false;
-    this.socket.disconnect(); // Voliteľné, ak chceš úplne odpojiť socket
+    // this.socket.disconnect(); // Voliteľné, ak chceš úplne odpojiť socket
   }
 
   public async joinChannel(): Promise<unknown> {
@@ -173,6 +226,7 @@ class ChannelService {
     const normalized = this.normalize(name);
     const socket = this.channels.get(normalized);
     if (!socket) return false;
+
     socket.destroy();
     return this.channels.delete(normalized);
   }
