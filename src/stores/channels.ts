@@ -74,6 +74,14 @@ export const useChannelsStore = defineStore('channels', {
       }
     },
 
+    removeChannelById(channelId: number) {
+      // Použijeme filter, aby sme vytvorili nové pole bez kanála so zadaným ID.
+      this.channelsList = this.channelsList.filter((channel) => channel.id !== channelId);
+
+      // Voliteľné logovanie pre debugovanie (môžete odstrániť)
+      // console.log(`Kanál s ID ${channelId} bol odstránený zo zoznamu.`);
+    },
+
     async fetchChannels() {
       try {
         this.loading = true;
