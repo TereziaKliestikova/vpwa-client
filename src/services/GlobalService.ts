@@ -1,7 +1,6 @@
 // src/services/GlobalSocketService.ts
 import { SocketManager } from './SocketManager';
 import { useChannelsStore } from 'src/stores/channels';
-import type { BootParams } from './SocketManager';
 import type { Invitation, InvitationWithUserId } from 'src/types/invitation';
 import { useAuthStore } from 'src/stores/auth';
 
@@ -13,20 +12,17 @@ class GlobalSocketService extends SocketManager {
     super('/'); // Root namespace
   }
 
-  public boot(params: BootParams): this {
-    this.subscribe(params);
+  public boot(): this {
+    this.subscribe();
     this.socket.connect();
     return this;
   }
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  public subscribe(params: any): void {
+
+  public subscribe(): void {
     if (this.subscribed) {
       console.log('Already subscribed to global socket');
       return;
     }
-
-    const { store } = params;
-
     this.socket.on('connect', () => {
       console.log('Global socket CONNECTED');
     });
@@ -55,7 +51,7 @@ class GlobalSocketService extends SocketManager {
     this.socket.on(
       'user:removed',
       (data: { userId: number; channelId: number; channelName: string; removedBy: string }) => {
-        const authStore = store.$auth;
+        const authStore = useAuthStore();
 
         if (data.userId === authStore.user?.id) {
           window.dispatchEvent(new CustomEvent('user:removed', { detail: data }));
