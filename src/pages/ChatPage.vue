@@ -787,21 +787,6 @@ const kickPeopleFromChannel = () => {
   selectedNicknames.value = [];
 };
 
-// const openInvitations = () => (showInvitationsDialog.value = true);
-// const acceptInvite = (id: number) => {
-//   const inv = invitations.value.find((i) => i.id === id);
-//   if (inv) {
-//     const existingChannel = channels.value.find((c) => c.name === inv.channel);
-//     if (existingChannel) {
-//       channelsStore.setActive(existingChannel.name);
-//     }
-//   }
-//   invitations.value = invitations.value.filter((i) => i.id !== id);
-// };
-
-// const declineInvite = (id: number) =>
-//   (invitations.value = invitations.value.filter((i) => i.id !== id));
-
 const invitationsStore = useInvitationsStore();
 const invitationCount = computed(() => invitationsStore.count);
 const invitations = computed(() => invitationsStore.list);
@@ -960,61 +945,36 @@ const leaveChannel = () => {
 //   }
 // };
 
-import type { AxiosError } from 'axios';
-
 const confirmLeaveChannel = async () => {
   if (!channelToLeave.value) return;
 
   const channelName = channelToLeave.value.name;
-  const channelId = channelToLeave.value.id;
-  const memberCount = channelToLeave.value.members?.length || 0;
-  const isLastMember = memberCount <= 1;
+  const socket = channelService.in(channelName);
 
   try {
-    // 1. WebSocket leave – toto je hlavný zdroj pravdy
-    const socket = channelService.in(channelName);
-    if (socket) {
-      await socket.leaveChannel();
-    }
-
-    // 2. HTTP leave len ak NIE sme posledný člen
-    if (!isLastMember) {
-      try {
-        await api.post(`/api/channels/${channelId}/leave`);
-      } catch (httpError) {
-        // Ignorujeme 404 – môže nastať, ak niekto iný medzitým odišiel ako posledný
-        const axiosError = httpError as AxiosError;
-        if (axiosError.response?.status !== 404) {
-          throw httpError; // prehodíme ďalej ak to nie je 404
-        }
-      }
-    }
-
-    // 3. Refresh zoznamu kanálov
-    await channelsStore.fetchChannels();
-
-    // 4. Správa podľa toho, či kanál ešte existuje
-    const stillExists = channelsStore.channelsList.some((c) => c.id === channelId);
-    systemMessage.value = stillExists
-      ? `Left channel "${channelName}"`
-      : `You were the last member. Channel "${channelName}" has been deleted.`;
-
-    // 5. Presun na ďalší kanál (ak nejaký ostal)
-    channelsStore.setActive(channelsStore.channelsList[0]?.name ?? '');
-  } catch (error) {
-    // Tu už vieme, že ide o neočakávanú chybu (nie 404 od HTTP leave)
-    console.error('Failed to leave channel:', error);
-
-    const axiosError = error as AxiosError;
-
-    // Špeciálny prípad: 404 aj keď sme mysleli, že nie sme posledný → znamená, že kanál bol zmazaný
-    if (axiosError.response?.status === 404 && isLastMember) {
-      systemMessage.value = `You were the last member. Channel "${channelName}" has been deleted.`;
-      await channelsStore.fetchChannels();
-      channelsStore.setActive(channelsStore.channelsList[0]?.name ?? '');
+    // VŽDY choď cez WebSocket – aj v private!
+    if (socket && socket.isJoined) {
+      await socket.leaveChannel(); // ← toto je kľúčové
     } else {
-      systemMessage.value = 'Failed to leave channel';
+      // Ak z nejakého dôvodu nie je pripojený – pripoj sa a odíď
+      const tempSocket = channelService.join(channelName);
+      if (!tempSocket.socket.connected) {
+        await new Promise<void>((resolve) => tempSocket.socket.once('connect', resolve));
+      }
+      await tempSocket.joinChannel();
+      await tempSocket.leaveChannel();
     }
+
+    // HTTP leave už nepotrebuješ vôbec (ani pre posledného člena)
+    // Backend to vyrieši v leaveChannel() – ak je posledný → zmaže kanál
+
+    await channelsStore.fetchChannels(); // len refresh zoznamu
+    channelsStore.setActive(channelsStore.channelsList[0]?.name ?? '');
+
+    systemMessage.value = 'Left channel successfully';
+  } catch (error) {
+    console.error('Failed to leave:', error);
+    systemMessage.value = 'Failed to leave channel';
   } finally {
     showLeaveConfirm.value = false;
     channelToLeave.value = null;
@@ -1132,12 +1092,74 @@ const handleNotificationClose = () => {
 };
 
 // spustame fixne notifikaciu pri kazdom reloadnuti stranky
+// onMounted(async () => {
+
+//   await invitationsStore.loadInitial();
+
+//   // Počúvaj nové pozvánky v reálnom čase
+//   window.addEventListener('invitation:received', ((e: CustomEvent<Invitation>) => {
+//     invitationsStore.add(e.detail);
+//   }) as EventListener);
+
+//   window.addEventListener('user:removed', ((e: CustomEvent) => {
+//     const { channelName, removedBy } = e.detail;
+//     systemMessage.value = `You were removed from ${channelName} by ${removedBy}`;
+
+//     // Refresh channels
+//     channelsStore.fetchChannels();
+//   }) as EventListener);
+
+//   window.addEventListener('unhandledrejection', (event) => {
+//     console.error('🔴🔴🔴 UNHANDLED REJECTION 🔴🔴🔴');
+//     console.error('Reason:', event.reason);
+//     console.error('Stack:', event.reason?.stack);
+//     console.error('Promise:', event.promise);
+//   });
+
+//   try {
+//     await authStore.check();
+//     await fetchUsers();
+//     await channelsStore.fetchChannels();
+
+//     // Ak máš uložený posledný kanál (napr. v localStorage), obnov ho
+//     const lastChannelName = localStorage.getItem('lastActiveChannel');
+//     console.log('Last active channel from storage:', lastChannelName);
+//     const lastChannelExists =
+//       lastChannelName && channelsStore.channelsList.some((ch) => ch.name === lastChannelName);
+
+//     if (lastChannelExists) {
+//       channelsStore.setActive(lastChannelName); // ← toto je kľúčové!
+//     } else if (channelsStore.channelsList.length > 0) {
+//       // Ak nemá uložený, alebo bol zmazaný → choď na prvý
+//       channelsStore.setActive(channelsStore.channelsList[0].name);
+//     }
+
+//     // znova sa pripoj do kanala, toto uz nahra aj spravy:
+//     await channelsStore.rejoinActiveChannel();
+//   } catch (err) {
+//     console.error('Init failed:', err);
+//   }
+
+//   triggerChatNotification();
+// });
+
 onMounted(async () => {
+  // setGlobalStores(channelsStore);
+
+  // ✅ Register stores globally for socket access
   await invitationsStore.loadInitial();
 
   // Počúvaj nové pozvánky v reálnom čase
   window.addEventListener('invitation:received', ((e: CustomEvent<Invitation>) => {
     invitationsStore.add(e.detail);
+  }) as EventListener);
+
+  window.addEventListener('user:removed', ((e: CustomEvent) => {
+    const { channelName, removedBy } = e.detail;
+    systemMessage.value = `You were removed from ${channelName} by ${removedBy}`;
+
+    // ✅ Refresh channels - AWAIT or use void
+    void channelsStore.fetchChannels();
   }) as EventListener);
 
   window.addEventListener('unhandledrejection', (event) => {
@@ -1159,9 +1181,8 @@ onMounted(async () => {
       lastChannelName && channelsStore.channelsList.some((ch) => ch.name === lastChannelName);
 
     if (lastChannelExists) {
-      channelsStore.setActive(lastChannelName); // ← toto je kľúčové!
+      channelsStore.setActive(lastChannelName);
     } else if (channelsStore.channelsList.length > 0) {
-      // Ak nemá uložený, alebo bol zmazaný → choď na prvý
       channelsStore.setActive(channelsStore.channelsList[0].name);
     }
 
