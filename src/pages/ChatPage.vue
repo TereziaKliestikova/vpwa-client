@@ -327,6 +327,8 @@
             outlined
             dense
             class="q-mt-md"
+            emit-value
+            map-options
           />
         </q-card-section>
 
@@ -391,7 +393,7 @@
     </q-dialog>
 
     <!-- Dialog pre nastavenie statusu usera -->
-    <q-dialog v-model="showStatusDialog">
+    <!-- <q-dialog v-model="showStatusDialog">
       <q-card style="min-width: 300px">
         <q-card-section class="row justify-between items-center">
           <div class="text-h6">Set your status</div>
@@ -415,7 +417,7 @@
           <q-btn flat label="Save" color="primary" @click="saveUserStatus" />
         </q-card-actions>
       </q-card>
-    </q-dialog>
+    </q-dialog> -->
 
     <!-- Dialog pre zoznam členov kanála -->
     <q-dialog v-model="showMembersDialog">
@@ -583,14 +585,14 @@ const iconSize = computed(() => {
 });
 
 // Status options
-const statusOptions = [
-  { label: 'Online', value: 'online' as const },
-  { label: 'Do Not Disturb', value: 'dnd' as const },
-  { label: 'Offline', value: 'offline' as const },
-];
+// const statusOptions = [
+//   { label: 'Online', value: 'online' as const },
+//   { label: 'Do Not Disturb', value: 'dnd' as const },
+//   { label: 'Offline', value: 'offline' as const },
+// ];
 
 // Aktuálny stav používateľa
-const userStatus = ref<UserStatus>('online');
+// const userStatus = ref<UserStatus>('online');
 
 // zobrazenie channel a friends listu
 const showChannels = ref(true);
@@ -643,7 +645,7 @@ const showInvitationsDialog = ref(false);
 const showCreateChannelDialog = ref(false);
 const showAddPeopleDialog = ref(false);
 const showRemovePeopleDialog = ref(false);
-const showStatusDialog = ref(false);
+// const showStatusDialog = ref(false);
 const showMembersDialog = ref(false);
 // const newFriendName = ref('');
 const newChannelName = ref('');
@@ -869,9 +871,17 @@ const createChannel = async () => {
 
     try {
       await socket.joinChannel();
-      systemMessage.value = `Joined ${response.data.name}`;
+      systemMessage.value = `Created channel ${response.data.name}`;
+      //and here will be a for loop that will send invites to all nicknames in selected nicknames
+      for (const nickname of selectedNicknames.value) {
+        try {
+          await socket.inviteUsers([nickname]);
+        } catch (err) {
+          console.error(`Failed to invite ${nickname}`, err);
+        }
+      }
     } catch (err) {
-      systemMessage.value = 'Failed to join channel';
+      systemMessage.value = 'Failed to create channel';
       console.error(err);
     }
 
@@ -1059,9 +1069,9 @@ const removePeopleFromChannel = () => {
 };
 
 // to bude funkcia ktorou ulozime status usera na server- momentalne len zavrieme dialog
-const saveUserStatus = () => {
-  showStatusDialog.value = false;
-};
+// const saveUserStatus = () => {
+//   showStatusDialog.value = false;
+// };
 
 // CLI fixne
 const newMessage = ref('');
